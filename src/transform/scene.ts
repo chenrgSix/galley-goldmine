@@ -4,7 +4,7 @@ import { renderAsync, type ResvgRenderOptions } from "@resvg/resvg-js";
 import type { SceneData, SceneNode } from "../importer/scene-source.js";
 import { escapeHtml } from "./formats.js";
 
-export const sceneRendererVersion = "4";
+export const sceneRendererVersion = "5";
 const { GIFEncoder, applyPalette, quantize } = createRequire(import.meta.url)("gifenc") as typeof import("gifenc").default;
 const width = 1000;
 const titleHeight = 46;
@@ -46,7 +46,6 @@ type Text = Extract<SceneNode, { kind: "text" }>;
 type Link = Extract<SceneNode, { kind: "link" }>;
 type Packet = Extract<SceneNode, { kind: "packet" }>;
 type Endpoint = Box | Text;
-type Scale = { x: number; y: number };
 
 export function* sceneFrames(scene: SceneData): Generator<Frame> {
   const nodes = structuredClone(scene.nodes);
@@ -99,16 +98,15 @@ function label(value: string, point: Point, size: number, fill: string, options:
     font-family="${family}" font-size="${fontSize}" font-weight="${options.bold ? 700 : 400}" fill="${fill}"${halo}>${escapeHtml(value)}</text>`;
 }
 
-function center(node: Endpoint, scale: Scale): Point {
-  return { x: (node.props.x + node.props.ox) * scale.x, y: (node.props.y + node.props.oy) * scale.y };
+function center(node: Endpoint): Point {
+  return { x: node.props.x + node.props.ox, y: node.props.y + node.props.oy };
 }
 
-function boxMarkup(node: Box, scale: Scale) {
+function boxMarkup(node: Box) {
   const { props } = node;
-  const { x, y } = center(node, scale);
-  const w = props.w * scale.x;
-  const h = props.h * scale.y;
-  const small = props.h <= 40;
+  const { w, h } = props;
+  const { x, y } = center(node);
+  const small = h <= 40;
   const dimmed = props.opacity < 1;
   const highlighted = props.stroke === "accent";
   const outline = /^c[1-8]$/u.test(props.stroke) || props.stroke === "soft" ? border : paint(props.stroke);
@@ -124,9 +122,9 @@ function boxMarkup(node: Box, scale: Scale) {
   </g>`;
 }
 
-function textMarkup(node: Text, scale: Scale) {
+function textMarkup(node: Text) {
   const { props } = node;
-  const { x, y } = center(node, scale);
+  const { x, y } = center(node);
   return `<g transform="translate(${x} ${y}) rotate(${props.rotate}) scale(${props.scale})" opacity="${props.opacity}">
     ${label(props.text, { x: 0, y: 0 }, props.size * 1.15, paint(props.color), {
       anchor: props.align, bold: Boolean(props.bold), mono: Boolean(props.mono),
@@ -134,11 +132,11 @@ function textMarkup(node: Text, scale: Scale) {
   </g>`;
 }
 
-function edgeDistance(node: Endpoint, direction: Point, scale: Scale) {
+function edgeDistance(node: Endpoint, direction: Point) {
   const angle = node.props.rotate * Math.PI / 180;
   const x = direction.x * Math.cos(angle) + direction.y * Math.sin(angle);
   const y = direction.y * Math.cos(angle) - direction.x * Math.sin(angle);
-  return Math.min(node.props.w * scale.x / Math.abs(x), node.props.h * scale.y / Math.abs(y)) * node.props.scale / 2;
+  return Math.min(node.props.w / Math.abs(x), node.props.h / Math.abs(y)) * node.props.scale / 2;
 }
 
 function mix(a: Point, b: Point, factor: number): Point {
@@ -153,18 +151,17 @@ function headMarkup(tip: Point, from: Point, color: string) {
   return `<polygon points="${tip.x},${tip.y} ${base.x + dx},${base.y - dy} ${base.x - dx},${base.y + dy}" fill="${color}"/>`;
 }
 
-function linkGeometry(link: Link, a: Endpoint, b: Endpoint, scale: Scale) {
-  const from = center(a, scale);
-  const to = center(b, scale);
+function linkGeometry(link: Link, a: Endpoint, b: Endpoint) {
+  const from = center(a);
+  const to = center(b);
   const length = Math.hypot(to.x - from.x, to.y - from.y);
   if (!length) throw new Error("Scene link endpoints share a center.");
   const direction = { x: (to.x - from.x) / length, y: (to.y - from.y) / length };
   const normal = { x: -direction.y, y: direction.x };
-  const start = mix(from, to, Math.min(0.45, (edgeDistance(a, direction, scale) + 3) / length));
-  const end = mix(to, from, Math.min(0.45, (edgeDistance(b, direction, scale) + 3) / length));
-  const control = mix(start, end, 0.5);
-  control.x += normal.x * link.props.bend * scale.x;
-  control.y += normal.y * link.props.bend * scale.x;
+  const start = mix(from, to, Math.min(0.45, (edgeDistance(a, direction) + 3) / length));
+  const end = mix(to, from, Math.min(0.45, (edgeDistance(b, direction) + 3) / length));
+  const midpoint = mix(start, end, 0.5);
+  const control = { x: midpoint.x + normal.x * link.props.bend, y: midpoint.y + normal.y * link.props.bend };
   const at = (t: number) => mix(mix(start, control, t), mix(control, end, t), t);
   const cut = mix(start, control, link.props.draw);
   const tip = at(link.props.draw);
@@ -237,7 +234,6 @@ function captionMarkup({ lines, size, lineHeight }: ReturnType<typeof layoutCapt
 
 function frameSvg(scene: SceneData, frame: Frame, caption: ReturnType<typeof layoutCaption>, captionHeight: number) {
   const height = titleHeight + canvasHeight + captionHeight;
-  const scale = { x: width / scene.width, y: canvasHeight / Math.max(canvasHeight, scene.height) };
   const nodes = new Map(frame.nodes.map((node) => [node.id, node]));
   const links = new Map<string, ReturnType<typeof linkGeometry>>();
   const lines: string[] = [];
@@ -250,7 +246,7 @@ function frameSvg(scene: SceneData, frame: Frame, caption: ReturnType<typeof lay
     if ((from?.kind !== "box" && from?.kind !== "text") || (to?.kind !== "box" && to?.kind !== "text")) {
       throw new Error("Scene link endpoints are missing.");
     }
-    const geometry = linkGeometry(node, from, to, scale);
+    const geometry = linkGeometry(node, from, to);
     links.set(node.id, geometry);
     const rendered = linkMarkup(node, geometry, frame.sent.get(node.id));
     lines.push(rendered.line);
@@ -258,8 +254,8 @@ function frameSvg(scene: SceneData, frame: Frame, caption: ReturnType<typeof lay
   }
   for (const node of frame.nodes) {
     if (node.kind === "camera" || node.props.opacity === 0) continue;
-    if (node.kind === "box") boxes.push(boxMarkup(node, scale));
-    if (node.kind === "text") boxes.push(textMarkup(node, scale));
+    if (node.kind === "box") boxes.push(boxMarkup(node));
+    if (node.kind === "text") boxes.push(textMarkup(node));
     if (node.kind === "packet") {
       const point = links.get(node.along)?.at(node.props.pos);
       const text = frame.sent.get(node.along)?.has(node.id) ? "" : node.props.text;
@@ -272,16 +268,15 @@ function frameSvg(scene: SceneData, frame: Frame, caption: ReturnType<typeof lay
   const camera = frame.nodes.find((node) => node.kind === "camera")?.props;
   const initial = scene.nodes.find((node) => node.kind === "camera")?.props;
   const transform = camera && initial
-    ? `translate(${initial.x * scale.x} ${initial.y * scale.y}) scale(${camera.zoom / initial.zoom})
-      translate(${-camera.x * scale.x} ${-camera.y * scale.y})` : "";
+    ? `translate(${initial.x} ${initial.y}) scale(${camera.zoom / initial.zoom}) translate(${-camera.x} ${-camera.y})` : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
     <rect width="${width}" height="${height}" fill="white"/>
     ${label(scene.title, { x: 24, y: titleHeight / 2 }, 20, ink, { anchor: "start", bold: true })}
     <path d="M0 ${titleHeight - 1}H${width} M0 ${titleHeight + canvasHeight}H${width}" stroke="#E3E6EA"/>
-    <defs><clipPath id="stage"><rect width="${width}" height="${canvasHeight}"/></clipPath></defs>
-    <g transform="translate(0 ${titleHeight})" clip-path="url(#stage)">
+    <svg y="${titleHeight}" width="${width}" height="${canvasHeight}" viewBox="0 0 ${scene.width} ${scene.height}"
+      preserveAspectRatio="xMidYMid meet" overflow="hidden">
       <g transform="${transform}">${lines.join("")}${boxes.join("")}${labels.join("")}</g>
-    </g>
+    </svg>
     ${captionMarkup(caption, captionHeight)}
   </svg>`;
 }

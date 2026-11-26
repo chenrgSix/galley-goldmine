@@ -93,6 +93,28 @@ describe("scene GIFs", () => {
     expect(gif.readUInt16LE(8)).toBe(height);
   });
 
+  it("fits a tall scene without stretching its geometry or camera movement", () => {
+    const tall = structuredClone(scene);
+    tall.height = 1000;
+    tall.nodes.push({ id: "camera", kind: "camera", props: { x: 400, y: 500, zoom: 1 } });
+    tall.steps[0]!.changes.push(
+      { id: "lookup", property: "bend", value: 48 },
+      { id: "camera", property: "x", value: 420 },
+      { id: "camera", property: "zoom", value: 1.25 },
+    );
+    const [, step] = [...sceneSvgFrames(tall)];
+    const $ = load(step!.svg, { xmlMode: true });
+    const stage = $("svg > svg");
+    expect(stage.attr()).toMatchObject({
+      y: "46", width: "1000", height: "470", viewBox: "0 0 800 1000",
+      preserveAspectRatio: "xMidYMid meet", overflow: "hidden",
+    });
+    expect(stage.children("g").attr("transform"))
+      .toBe("translate(400 500) scale(1.25) translate(-420 -500)");
+    expect(stage.find("rect").first().attr()).toMatchObject({ width: "220", height: "76", rx: "10" });
+    expect(stage.find("path").attr("d")).toBe("M303 150 Q400 198 497 150");
+  });
+
   it("migrates an existing cover reference and caches a distinct scene asset", async () => {
     const paths = workspacePaths(mkdtempSync(join(tmpdir(), "goldmine-scene-assets-")));
     try {
