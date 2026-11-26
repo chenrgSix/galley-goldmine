@@ -12,11 +12,17 @@ import { assets } from "../src/core/db/schema.js";
 import type { GalleyArticle } from "../src/importer/galley.js";
 import { saveSnapshot } from "../src/importer/snapshots.js";
 import { buildArticle } from "../src/transform/build.js";
+import { scene } from "./fixtures/scene.js";
 
 const pixel = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aR7sAAAAASUVORK5CYII=",
   "base64",
 );
+
+const sceneFigure = `<figure class="galley-codesteps galley-scene">
+  <header class="galley-codesteps-head"><span class="galley-codesteps-file">${scene.title}</span></header>
+  <div class="galley-scene-stage"><svg><text>已显示的问题</text></svg></div>
+</figure>`;
 
 describe("platform builds", () => {
   let paths: WorkspacePaths;
@@ -133,6 +139,48 @@ describe("platform builds", () => {
     const $ = load(readFileSync(build.files.html, "utf8"));
     expect($("figure").text()).toBe("Order to inventory");
     expect(build.warnings).toMatchObject([{ code: "flow-render-failed", severity: "blocking" }]);
+  });
+
+  it("embeds cached animated scenes at their figure positions on both platforms", async () => {
+    saveSnapshot(paths, {
+      ...article, bodyHtml: `<p>前一段</p>${sceneFigure}<p>中间一段</p>${sceneFigure}<p>后一段</p>`,
+      scenes: [scene, scene],
+    });
+    const cover = join(paths.root, "cover.png");
+    writeFileSync(cover, pixel);
+    const wechat = await buildArticle(paths, article.slug, { platform: "wechat", cover });
+    const toutiao = await buildArticle(paths, article.slug, { platform: "toutiao" });
+    const gifs = wechat.assets.filter(({ kind }) => kind === "scene");
+    expect(gifs).toHaveLength(1);
+    expect(toutiao.assets).toEqual(gifs);
+    expect(wechat.warnings).toEqual([]);
+    expect(toutiao.warnings).toEqual([]);
+    for (const build of [wechat, toutiao]) {
+      const $ = load(readFileSync(build.files.html, "utf8"));
+      const images = $("img").toArray();
+      expect(images).toHaveLength(2);
+      expect($(images[0]!).attr("alt")).toBe(scene.title);
+      expect($(images[0]!).attr("src")).not.toBe($(images[1]!).attr("src"));
+      expect(images.map((image) => resolve(build.files.directory, $(image).attr("src")!)))
+        .toEqual(images.map(() => join(paths.assets, gifs[0]!.file)));
+      expect($("svg, .galley-scene").length).toBe(0);
+      expect(readFileSync(build.files.markdown, "utf8")).toContain(gifs[0]!.file);
+    }
+  });
+
+  it("keeps readable scene text and distinct blocking warnings for missing data or a render failure", async () => {
+    const broken = structuredClone(scene);
+    broken.steps[0]!.changes.push({ id: "missing-node", property: "opacity", value: 1 });
+    saveSnapshot(paths, { ...article, bodyHtml: sceneFigure.repeat(2), scenes: [null, broken] });
+    const build = await buildArticle(paths, article.slug, { platform: "toutiao" });
+    expect(build.assets).toEqual([]);
+    expect(build.warnings).toMatchObject([
+      { code: "scene-source-missing", severity: "blocking" }, { code: "scene-render-failed", severity: "blocking" },
+    ]);
+    const $ = load(readFileSync(build.files.html, "utf8"));
+    expect($("figure").toArray().map((figure) => $(figure).find("p").text()))
+      .toEqual(["已显示的问题", "已显示的问题"]);
+    expect($("li").toArray().map((item) => $(item).text())).toEqual(scene.steps.map(({ caption }) => caption));
   });
 
   it("exports all recovered code steps with their lines and notes as readable text", async () => {

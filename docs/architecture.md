@@ -31,7 +31,7 @@ Goldmine 是独立的 MIT 项目。CLI 和网页后台使用同一套工作区�
 
 数据库在现有 `articles`、`article_snapshots` 之外新增四张表：
 
-- `assets`：`sha256`、类型（`image`、`mermaid`、`katex`、`cover`）、来源、缓存键、MIME、字节数、宽高。
+- `assets`：`sha256`、类型（`image`、`mermaid`、`katex`、`cover`、`scene`）、来源、缓存键、MIME、字节数、宽高。
 - `platform_builds`：快照（`source_url` + `version`）、平台（`wechat`、`toutiao`）、修订号、标题、摘要、封面素材、HTML、Markdown 与 manifest 指纹、`bundle_sha256`、结构化警告、渲染器版本。
 - `reviews`：构建、审核时的 `bundle_sha256`、结论（`approved`、`rejected`）、备注、时间。
 - `sync_attempts`：构建、`bundle_sha256`、审核、模式（`dry_run`、`sync`）、状态、草稿链接、退出码、脱敏后的输出摘录、开始、截止与结束时间，以及人工核对的 `resolved_at` 和 `resolution_note`。
@@ -44,6 +44,8 @@ Goldmine 是独立的 MIT 项目。CLI 和网页后台使用同一套工作区�
 
 本地 Galley 生产构建验证了冷启动和预热后的两种页面形态。导入器按页面中的插入标记还原延迟的正文片段，在容器与组件序号一一对应时从公开的 React 数据中提取 Mermaid 源码和分步代码。分步代码还校验公开页上显示的第一步和总步数。整个过程使用静态解析。
 
+Galley `ScenePlayer` 的公开数据包含节点、步骤字幕和属性变更。导入会核对标题、总步数、画布及初始可见节点，再按 figure 顺序将已验证的 scene 写入快照。个别 scene 校验失败时保留对应的位置。
+
 ## 转换
 
 转换以快照为输入，正文 HTML 一律按不可信数据处理。
@@ -53,7 +55,9 @@ Goldmine 是独立的 MIT 项目。CLI 和网页后台使用同一套工作区�
 3. 公式从 KaTeX 的 `annotation[encoding="application/x-tex"]` 取 TeX 源码，用 MathJax 和 resvg 生成 PNG。Galley 流程图使用已清洗的公开 SVG 生成 PNG，分步代码展开为带说明的有序列表。Mermaid 通过可选的 Playwright 与 Chromium 生成 PNG，`doctor` 会检查 Mermaid 环境。图或步骤无法完整恢复时保留能读取的内容并给出阻断警告。
 4. 输出前按白名单清洗元素、属性和网址。无法静态化的交互组件保留可读内容并附提示。公众号使用内联样式，头条使用语义 HTML，两者均附带 Markdown。
 
-静态化素材按「源码 + 渲染器版本 + 主题」生成缓存键，命中时复用已有 PNG。这样重复构建不会因图片字节变化而改变指纹。
+静态化素材使用源码和渲染器版本生成缓存键，命中时复用已有图片。这样重复构建不会因图片字节变化而改变指纹。
+
+公众号和头条文章在 scene 原位置嵌入自动循环的 GIF。首帧保留初始布局，每一步追加一帧并显示该步字幕。帧时长依次为 1000 ms、1500 ms（中间帧）和 2600 ms（末帧）。场景数据缺失或生成失败时保留可读文字，并给出阻断警告。升级后的工作区先运行 `goldmine init`，已有文章可重新导入公开页以补齐 scene 数据。
 
 ## 标题、摘要和封面
 

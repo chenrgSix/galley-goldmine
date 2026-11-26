@@ -5,6 +5,7 @@ import type { WorkspacePaths } from "../core/config.js";
 import type { BuildWarning } from "../core/db/schema.js";
 import { httpUrl } from "../core/http.js";
 import type { GalleyArticle } from "../importer/galley.js";
+import { sceneSelector } from "../importer/scene-source.js";
 import { flattenCodeSteps } from "./code-steps.js";
 import { staticImages } from "./static-images.js";
 
@@ -132,6 +133,41 @@ export async function transformBody(paths: WorkspacePaths, article: GalleyArticl
   }
 
   try {
+    for (const [index, node] of $(sceneSelector).toArray().entries()) {
+      const figure = $(node);
+      const scene = article.scenes?.[index];
+      const title = scene?.title.trim() || figure.find(".galley-codesteps-file, figcaption").first().text().trim() || "分步演示";
+      if (scene) {
+        try {
+          const gif = await staticImage.scene(scene);
+          figure.replaceWith(useImage(gif, title).addClass("goldmine-display"));
+          continue;
+        } catch {
+          warnings.push({
+            code: "scene-render-failed", severity: "blocking",
+            message: `Could not render scene “${title}”. Its labels and captions are shown as text. Import the current public page and try again.`,
+          });
+        }
+      } else {
+        warnings.push({
+          code: "scene-source-missing", severity: "blocking",
+          message: `No verified source was available for scene “${title}”. Import the current public page before building again.`,
+        });
+      }
+
+      const fallback = $("<figure>").append($("<figcaption>").text(title));
+      const labels = new Set(figure.find(".galley-scene-stage svg text").toArray()
+        .map((item) => $(item).text().trim()).filter(Boolean));
+      if (labels.size) fallback.append($("<p>").text([...labels].join(" / ")));
+      const captions = scene?.steps.map(({ caption }) => caption.trim()).filter(Boolean)
+        ?? [figure.find(".galley-codesteps-note-inner").text().trim()].filter(Boolean);
+      if (captions.length) fallback.append($("<ol>").append(...captions.map((caption) => $("<li>").text(caption))));
+      if (!labels.size && !captions.length) {
+        const text = figure.text().trim();
+        if (text && text !== title) fallback.append($("<p>").text(text));
+      }
+      figure.replaceWith(fallback);
+    }
     for (const node of $("figure.galley-flow").toArray()) {
       const figure = $(node);
       const svg = figure.children("svg").first();
