@@ -3,6 +3,7 @@ import { downloadTimeoutMs, httpUrl, readResponseBytes, redirectStatuses } from 
 import { codeStepsSelector, codeStepSources, visibleCodeStep } from "./code-steps-source.js";
 import { flightData } from "./flight-data.js";
 import { mermaidSources } from "./mermaid-source.js";
+import { sceneSelector, sceneSources } from "./scene-source.js";
 import { restoreStreamedSegments } from "./streamed-html.js";
 
 function articleLocation(url: URL | null, origin: string | null) {
@@ -87,7 +88,8 @@ export async function readGalleyArticle(input: string, baseUrl: string | null) {
   const diagrams = body.find("figure.galley-mermaid");
   const restoreMermaid = diagrams.find(".galley-mermaid-placeholder").length > 0;
   const stepFigures = body.find(codeStepsSelector);
-  const stream = restoreMermaid || stepFigures.length > 0 ? flightData($) : "";
+  const sceneFigures = body.find(sceneSelector);
+  const stream = restoreMermaid || stepFigures.length > 0 || sceneFigures.length > 0 ? flightData($) : "";
   if (restoreMermaid) {
     const sources = mermaidSources(stream, diagrams.length);
     diagrams.each((index, diagram) => {
@@ -103,6 +105,7 @@ export async function readGalleyArticle(input: string, baseUrl: string | null) {
     const shown = visibleCodeStep($, stepFigures.eq(index));
     return shown.count === group.steps.length && shown.code.trimEnd() === group.steps[0]?.code.trimEnd();
   }) ? steps : undefined;
+  const scenes = sceneFigures.length > 0 ? sceneSources(stream, $, sceneFigures) : undefined;
   const bodyHtml = body.html()?.trim();
   if (!title || !bodyHtml) {
     throw new Error("The page has no Galley article title or rendered body.");
@@ -131,5 +134,6 @@ export async function readGalleyArticle(input: string, baseUrl: string | null) {
     bodyHtml,
     images,
     ...(codeSteps ? { codeSteps } : {}),
+    ...(scenes ? { scenes } : {}),
   };
 }

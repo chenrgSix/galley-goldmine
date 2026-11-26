@@ -1,6 +1,6 @@
 import type { CheerioAPI } from "cheerio";
 import { z } from "zod";
-import { clientModuleIds } from "./flight-data.js";
+import { clientModuleIds, flightString } from "./flight-data.js";
 
 export const codeStepsSelector = "figure.galley-codesteps:not(.galley-scene)";
 
@@ -29,12 +29,6 @@ const codeStepsProps = z.object({
   })).min(1),
   texts: z.array(z.string()).optional(),
 });
-
-function flightString(value = ""): string | undefined {
-  if (value === "$undefined") return "";
-  if (value.startsWith("$$")) return value.slice(1);
-  return value.startsWith("$") ? undefined : value;
-}
 
 function lineText(value: unknown): string | undefined {
   const pending = [value];

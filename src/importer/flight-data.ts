@@ -24,3 +24,9 @@ export function clientModuleIds(data: string, name: string): Set<string> {
   }
   return ids;
 }
+
+export function flightString(value = ""): string | undefined {
+  if (value === "$undefined") return "";
+  if (value.startsWith("$$")) return value.slice(1);
+  return value.startsWith("$") ? undefined : value;
+}
