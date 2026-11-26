@@ -1,27 +1,7 @@
-import type { CheerioAPI } from "cheerio";
+import { clientModuleIds } from "./flight-data.js";
 
-function flightData($: CheerioAPI): string {
-  // Only read JSON arguments from the inert script nodes. Never run the page scripts.
-  const chunks: string[] = [];
-  $("script:not([src])").each((_index, script) => {
-    const match = /^self\.__next_f\.push\((\[1,".*"\])\);?$/.exec($(script).html()?.trim() ?? "");
-    if (!match?.[1]) return;
-    try {
-      const chunk: unknown = JSON.parse(match[1])[1];
-      if (typeof chunk === "string") chunks.push(chunk);
-    } catch {
-      // An unsupported transport record leaves the figures without a source.
-    }
-  });
-  return chunks.join("");
-}
-
-export function mermaidSources($: CheerioAPI, figureCount: number): Map<number, string> {
-  const data = flightData($);
-  const modules = new Set<string>();
-  for (const [, id] of data.matchAll(/^([\da-f]+):I\[[^\n]*,"MermaidDiagram"\]$/gmu)) {
-    if (id) modules.add(id);
-  }
+export function mermaidSources(data: string, figureCount: number): Map<number, string> {
+  const modules = clientModuleIds(data, "MermaidDiagram");
 
   const sources = new Map<number, string>();
   for (const [, id, index, code] of data.matchAll(

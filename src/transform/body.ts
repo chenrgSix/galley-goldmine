@@ -5,6 +5,7 @@ import type { WorkspacePaths } from "../core/config.js";
 import type { BuildWarning } from "../core/db/schema.js";
 import { httpUrl } from "../core/http.js";
 import type { GalleyArticle } from "../importer/galley.js";
+import { flattenCodeSteps } from "./code-steps.js";
 import { staticImages } from "./static-images.js";
 
 const allowedTags = [
@@ -45,6 +46,12 @@ export async function transformBody(paths: WorkspacePaths, article: GalleyArticl
   }
 
   $(discarded).remove();
+  if (flattenCodeSteps($, article.codeSteps)) {
+    warnings.push({
+      code: "code-steps-source-missing", severity: "blocking",
+      message: "Some code steps could not be recovered. Import the current public page before building again.",
+    });
+  }
   $("button, input, textarea, select, .galley-anchor, .galley-tabs-list, .galley-mermaid-placeholder").remove();
   $("details").each((_index, node) => {
     const details = $(node);
@@ -179,7 +186,7 @@ export async function transformBody(paths: WorkspacePaths, article: GalleyArticl
       ol: ["start", "reversed"], li: ["value"], th: ["scope", "colspan", "rowspan"], td: ["colspan", "rowspan"],
     },
     allowedClasses: {
-      aside: ["goldmine-callout"], section: ["goldmine-fold"],
+      aside: ["goldmine-callout"], section: ["goldmine-fold", "goldmine-code-steps"],
       img: ["goldmine-display", "goldmine-inline"], code: [/^language-[\w+-]+$/],
     },
     allowedSchemes: ["http", "https"],

@@ -1,5 +1,7 @@
 import { load } from "cheerio";
 import { downloadTimeoutMs, httpUrl, readResponseBytes, redirectStatuses } from "../core/http.js";
+import { codeStepsSelector, codeStepSources, visibleCodeStep } from "./code-steps-source.js";
+import { flightData } from "./flight-data.js";
 import { mermaidSources } from "./mermaid-source.js";
 import { restoreStreamedSegments } from "./streamed-html.js";
 
@@ -83,8 +85,11 @@ export async function readGalleyArticle(input: string, baseUrl: string | null) {
   }
   body.find("script, template, galley-notes").remove();
   const diagrams = body.find("figure.galley-mermaid");
-  if (diagrams.find(".galley-mermaid-placeholder").length > 0) {
-    const sources = mermaidSources($, diagrams.length);
+  const restoreMermaid = diagrams.find(".galley-mermaid-placeholder").length > 0;
+  const stepFigures = body.find(codeStepsSelector);
+  const stream = restoreMermaid || stepFigures.length > 0 ? flightData($) : "";
+  if (restoreMermaid) {
+    const sources = mermaidSources(stream, diagrams.length);
     diagrams.each((index, diagram) => {
       const source = sources.get(index);
       if (source && $(diagram).find(".galley-mermaid-placeholder").length > 0) {
@@ -92,6 +97,12 @@ export async function readGalleyArticle(input: string, baseUrl: string | null) {
       }
     });
   }
+  const steps = stepFigures.length > 0 ? codeStepSources(stream, stepFigures.length) : undefined;
+  // Check the rendered first step and count before assigning any recovered props to the snapshot.
+  const codeSteps = steps?.every((group, index) => {
+    const shown = visibleCodeStep($, stepFigures.eq(index));
+    return shown.count === group.steps.length && shown.code.trimEnd() === group.steps[0]?.code.trimEnd();
+  }) ? steps : undefined;
   const bodyHtml = body.html()?.trim();
   if (!title || !bodyHtml) {
     throw new Error("The page has no Galley article title or rendered body.");
@@ -119,5 +130,6 @@ export async function readGalleyArticle(input: string, baseUrl: string | null) {
     tags: [...new Set(tags)],
     bodyHtml,
     images,
+    ...(codeSteps ? { codeSteps } : {}),
   };
 }

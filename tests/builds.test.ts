@@ -135,6 +135,37 @@ describe("platform builds", () => {
     expect(build.warnings).toMatchObject([{ code: "flow-render-failed", severity: "blocking" }]);
   });
 
+  it("exports all recovered code steps with their lines and notes as readable text", async () => {
+    saveSnapshot(paths, {
+      ...article,
+      bodyHtml: '<figure class="galley-codesteps"><span class="galley-codesteps-count">1 / 2</span><pre><code>first</code></pre></figure>',
+      codeSteps: [{
+        title: "Two steps", language: "JavaScript", steps: [
+          { file: "", code: "first", note: "First note" },
+          { file: "demo.js", code: "second\n  indented", note: "Second note" },
+        ],
+      }],
+    });
+    const build = await buildArticle(paths, "example", { platform: "toutiao" });
+    expect(build.warnings).toEqual([]);
+    const $ = load(readFileSync(build.files.html, "utf8"));
+    expect($(".goldmine-code-steps li")).toHaveLength(2);
+    expect($(".goldmine-code-steps li").last().find("code").text()).toBe("second\n  indented");
+    expect($(".goldmine-code-steps li").last().text()).toContain("Second note");
+    expect(readFileSync(build.files.markdown, "utf8")).toContain("Second note");
+  });
+
+  it("shows the visible code and blocks syncing when an older snapshot is missing steps", async () => {
+    saveSnapshot(paths, {
+      ...article,
+      bodyHtml: '<figure class="galley-codesteps"><span class="galley-codesteps-count">1 / 3</span><pre><code>first</code></pre></figure>',
+    });
+    const build = await buildArticle(paths, "example", { platform: "toutiao" });
+    const $ = load(readFileSync(build.files.html, "utf8"));
+    expect($(".goldmine-code-steps li code").text()).toBe("first");
+    expect(build.warnings).toMatchObject([{ code: "code-steps-source-missing", severity: "blocking" }]);
+  });
+
   it("keeps media requests off other private origins, including after a redirect", async () => {
     saveSnapshot(paths, {
       ...article, bodyHtml: '<p><img src="/external-image" alt="Private image"></p>',
