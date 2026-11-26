@@ -3,6 +3,8 @@ import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import type { WorkspacePaths } from "../config.js";
 
+export type DatabaseReader = Pick<BetterSQLite3Database, "select">;
+
 const migrations = [
   new URL("../../../drizzle/0001_article_snapshots.sql", import.meta.url),
   new URL("../../../drizzle/0002_distribution.sql", import.meta.url),

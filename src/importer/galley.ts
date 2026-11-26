@@ -1,16 +1,10 @@
 import { load } from "cheerio";
+import { downloadTimeoutMs, httpUrl, readResponseBytes, redirectStatuses } from "../core/http.js";
 import { mermaidSources } from "./mermaid-source.js";
-
-const maxPageBytes = 12 * 1024 * 1024;
-const redirectStatuses = new Set([301, 302, 303, 307, 308]);
-
-function isHttpUrl(url: URL): boolean {
-  return (url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password;
-}
 
 function articleLocation(url: URL | null, origin: string | null) {
   const encodedSlug = url && /^\/posts\/([^/]+)\/?$/.exec(url.pathname)?.[1];
-  if (!url || !isHttpUrl(url) || !encodedSlug) {
+  if (!url || !httpUrl(url.href) || !encodedSlug) {
     throw new Error("Use a public Galley URL in the form https://site.example/posts/slug.");
   }
   if (origin && url.origin !== origin) {
@@ -30,6 +24,11 @@ function articleLocation(url: URL | null, origin: string | null) {
   return { url, slug };
 }
 
+export function canonicalArticleUrl(value: string): string {
+  const { url, slug } = articleLocation(URL.parse(value), null);
+  return new URL(`/posts/${encodeURIComponent(slug)}`, url).href;
+}
+
 async function readHtml(response: Response): Promise<string> {
   const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
   if (contentType !== "text/html" || !response.body) {
@@ -37,22 +36,8 @@ async function readHtml(response: Response): Promise<string> {
     throw new Error("Galley did not return an HTML article page.");
   }
 
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > maxPageBytes) throw new Error("The Galley page exceeds the 12 MiB import limit.");
-      chunks.push(value);
-    }
-  } finally {
-    await reader.cancel().catch(() => undefined);
-    reader.releaseLock();
-  }
-  return Buffer.concat(chunks).toString("utf8");
+  const bytes = await readResponseBytes(response, "The Galley page exceeds the 12 MiB import limit.");
+  return bytes.toString("utf8");
 }
 
 async function requestPage(input: string, baseUrl: string | null) {
@@ -60,7 +45,7 @@ async function requestPage(input: string, baseUrl: string | null) {
     (baseUrl ? new URL(`/posts/${encodeURIComponent(input)}`, baseUrl) : null);
   let location = articleLocation(target, baseUrl);
   const origin = location.url.origin;
-  const signal = AbortSignal.timeout(10_000);
+  const signal = AbortSignal.timeout(downloadTimeoutMs);
 
   for (let redirects = 0; redirects <= 4; redirects += 1) {
     const response = await fetch(location.url, {
@@ -112,8 +97,8 @@ export async function readGalleyArticle(input: string, baseUrl: string | null) {
     .filter(Boolean);
   const images = body.find("img").toArray().flatMap((image) => {
     const src = $(image).attr("src")?.trim();
-    const imageUrl = src && URL.parse(src, url);
-    if (!imageUrl || !isHttpUrl(imageUrl)) return [];
+    const imageUrl = src && httpUrl(src, url);
+    if (!imageUrl) return [];
     return [{ url: imageUrl.href, alt: $(image).attr("alt") ?? "" }];
   });
   const summary = $("meta[name='description']").first().attr("content")?.trim() ||

@@ -1,18 +1,17 @@
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { and, asc, desc, eq, max } from "drizzle-orm";
 import type { WorkspacePaths } from "../core/config.js";
 import { withDatabase } from "../core/db/client.js";
 import { articles, articleSnapshots } from "../core/db/schema.js";
-import { writeNewFile } from "../core/files.js";
-import type { GalleyArticle } from "./galley.js";
+import { sha256, writeNewFile } from "../core/files.js";
+import { canonicalArticleUrl, type GalleyArticle } from "./galley.js";
 
 export function saveSnapshot(paths: WorkspacePaths, article: GalleyArticle) {
   const { sourceUrl, slug, title } = article;
   const content = `${JSON.stringify(article, null, 2)}\n`;
-  const sha256 = createHash("sha256").update(content).digest("hex");
-  const snapshotPath = join(paths.snapshots, `${sha256}.json`);
+  const fingerprint = sha256(content);
+  const snapshotPath = join(paths.snapshots, `${fingerprint}.json`);
 
   return withDatabase(paths, false, (db) => {
     // Write the complete content before committing any index entry.
@@ -26,14 +25,14 @@ export function saveSnapshot(paths: WorkspacePaths, article: GalleyArticle) {
       const latest = tx.select().from(articleSnapshots)
         .where(eq(articleSnapshots.sourceUrl, sourceUrl))
         .orderBy(desc(articleSnapshots.version)).get();
-      if (latest?.sha256 === sha256) {
+      if (latest?.sha256 === fingerprint) {
         return { ...latest, slug, snapshotPath, created: false };
       }
 
       const entry = {
         sourceUrl,
         version: (latest?.version ?? 0) + 1,
-        sha256,
+        sha256: fingerprint,
         title,
         importedAt: new Date().toISOString(),
       };
@@ -41,6 +40,23 @@ export function saveSnapshot(paths: WorkspacePaths, article: GalleyArticle) {
       return { ...entry, slug, snapshotPath, created: true };
     }, { behavior: "immediate" });
   });
+}
+
+export type SnapshotEntry = ReturnType<typeof listArticles>[number];
+
+export function matchArticle(entries: SnapshotEntry[], reference: string): SnapshotEntry {
+  const sourceUrl = URL.parse(reference) ? canonicalArticleUrl(reference) : null;
+  const matches = entries.filter((entry) => sourceUrl ? entry.sourceUrl === sourceUrl : entry.slug === reference);
+  if (matches.length > 1) throw new Error("This slug belongs to multiple articles. Use the full article URL.");
+  const entry = matches[0];
+  if (!entry) throw new Error("Article has not been imported. Run goldmine import first.");
+  return entry;
+}
+
+export function readSnapshot(entry: SnapshotEntry): GalleyArticle {
+  const contents = readFileSync(entry.snapshotPath);
+  if (sha256(contents) !== entry.sha256) throw new Error("The snapshot file has changed. Restore it before building.");
+  return JSON.parse(contents.toString("utf8")) as GalleyArticle;
 }
 
 export function listArticles(paths: WorkspacePaths) {
