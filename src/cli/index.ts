@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Command, Option } from "commander";
 import { initializeConfig, loadConfig, workspacePaths } from "../core/config.js";
 import { initializeDatabase, withDatabase } from "../core/db/client.js";
 import { articleSnapshots, platforms, type Platform } from "../core/db/schema.js";
 import { readGalleyArticle } from "../importer/galley.js";
 import { listArticles, saveSnapshot } from "../importer/snapshots.js";
+import { previewBuild, recordReview } from "../review/reviews.js";
+import { distributionStatus } from "../review/status.js";
 import { buildArticle } from "../transform/build.js";
 
 const manifest = JSON.parse(
@@ -132,6 +135,63 @@ program
     console.log(`Built ${build.platform} v${build.version} revision ${build.revision} (${build.id})`);
     console.log(build.files.preview);
     for (const warning of build.warnings) console.log(`[${warning.severity}] ${terminalTitle(warning.message)}`);
+  });
+
+program
+  .command("preview <build-id>")
+  .description("show the local preview and assets for a build")
+  .option("--json", "print the preview details as JSON")
+  .action((id: string, options: { json?: boolean }) => {
+    const paths = pathsForCommand();
+    loadConfig(paths);
+    const preview = previewBuild(paths, id);
+    if (options.json) {
+      console.log(JSON.stringify(preview));
+      return;
+    }
+    console.log(preview.files.preview);
+    for (const warning of preview.warnings) console.log(`[${warning.severity}] ${terminalTitle(warning.message)}`);
+    for (const asset of preview.assets) console.log(`${asset.kind}\t${join(paths.assets, asset.file)}`);
+  });
+
+program
+  .command("review <build-id>")
+  .description("record an approval or rejection of the current build")
+  .option("--approve", "approve the build")
+  .option("--reject", "reject the build")
+  .option("--note <text>", "record a review note")
+  .option("--json", "print the review as JSON")
+  .action((id: string, options: { approve?: boolean; reject?: boolean; note?: string; json?: boolean }) => {
+    if (Boolean(options.approve) === Boolean(options.reject)) throw new Error("Choose either --approve or --reject.");
+    const paths = pathsForCommand();
+    loadConfig(paths);
+    const result = recordReview(paths, id, options.approve ? "approved" : "rejected", options.note);
+    console.log(options.json ? JSON.stringify(result) : `Review ${result.id}: ${result.decision} ${result.buildId}`);
+  });
+
+program
+  .command("status [article]")
+  .description("show snapshots, platform builds, reviews and sync attempts")
+  .option("--json", "print the distribution status as JSON")
+  .action((article: string | undefined, options: { json?: boolean }) => {
+    const paths = pathsForCommand();
+    loadConfig(paths);
+    const entries = distributionStatus(paths, article);
+    if (options.json) {
+      console.log(JSON.stringify(entries));
+      return;
+    }
+    if (entries.length === 0) console.log("No articles imported.");
+    for (const entry of entries) {
+      console.log(`v${entry.version}\t${terminalTitle(entry.title)}\t${entry.sourceUrl}`);
+      for (const build of entry.builds) {
+        const blockers = build.warnings.filter(({ severity }) => severity === "blocking").length;
+        console.log(`  ${build.platform} r${build.revision}\t${build.id}\t${build.reviewState} (${blockers} blocking)`);
+        for (const attempt of build.attempts) {
+          console.log(`    #${attempt.id}\t${attempt.mode}\t${attempt.status}`);
+        }
+      }
+    }
   });
 
 try {
