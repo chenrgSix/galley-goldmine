@@ -34,6 +34,7 @@
     "cheerio": "^1.2.0",
     "commander": "^15.1.0",
     "drizzle-orm": "^0.45.4",
+    "gifenc": "1.0.3",
     "image-size": "2.1.0",
     "ipaddr.js": "2.5.0",
     "sanitize-html": "2.18.2",

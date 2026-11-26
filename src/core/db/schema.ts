@@ -29,7 +29,7 @@ export const articleSnapshots = sqliteTable(
 export const assets = sqliteTable("assets", {
   id: text().primaryKey().notNull(),
   sha256: text().notNull(),
-  kind: text({ enum: ["image", "mermaid", "katex", "cover"] }).notNull(),
+  kind: text({ enum: ["image", "mermaid", "katex", "cover", "scene"] }).notNull(),
   source: text(),
   cacheKey: text("cache_key").unique(),
   mime: text().notNull(),

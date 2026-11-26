@@ -8,6 +8,7 @@ export type DatabaseReader = Pick<BetterSQLite3Database, "select">;
 const migrations = [
   new URL("../../../drizzle/0001_article_snapshots.sql", import.meta.url),
   new URL("../../../drizzle/0002_distribution.sql", import.meta.url),
+  new URL("../../../drizzle/0003_scene_assets.sql", import.meta.url),
 ];
 
 function schemaVersion(connection: Database.Database): number {
@@ -20,6 +21,8 @@ export function initializeDatabase(paths: WorkspacePaths): void {
   }
   const connection = new Database(paths.database);
   try {
+    // Table rebuilds must leave foreign keys pointing to the final table names.
+    connection.pragma("foreign_keys = OFF");
     connection.transaction(() => {
       const version = schemaVersion(connection);
       if (version > migrations.length) {
@@ -29,6 +32,8 @@ export function initializeDatabase(paths: WorkspacePaths): void {
         connection.exec(readFileSync(migration, "utf8"));
       }
       if (version < migrations.length) {
+        const violations = connection.pragma("foreign_key_check") as unknown[];
+        if (violations.length) throw new Error("The migration would leave inconsistent foreign keys.");
         connection.pragma(`user_version = ${migrations.length}`);
       }
     }).immediate();
