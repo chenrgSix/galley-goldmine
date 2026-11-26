@@ -1,4 +1,5 @@
 import { load } from "cheerio";
+import { mermaidSources } from "./mermaid-source.js";
 
 const maxPageBytes = 12 * 1024 * 1024;
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
@@ -91,6 +92,16 @@ export async function readGalleyArticle(input: string, baseUrl: string | null) {
   const title = header.find(".galley-title").first().text().trim();
   const body = article.find(".galley-prose").first();
   body.find("script, template, galley-notes").remove();
+  const diagrams = body.find("figure.galley-mermaid");
+  if (diagrams.find(".galley-mermaid-placeholder").length > 0) {
+    const sources = mermaidSources($, diagrams.length);
+    diagrams.each((index, diagram) => {
+      const source = sources.get(index);
+      if (source && $(diagram).find(".galley-mermaid-placeholder").length > 0) {
+        $(diagram).append($("<pre>").addClass("galley-mermaid-source").text(source));
+      }
+    });
+  }
   const bodyHtml = body.html()?.trim();
   if (!title || !bodyHtml) {
     throw new Error("The page has no Galley article title or rendered body.");

@@ -58,7 +58,10 @@ describe("Galley article reader", () => {
     expect(article.bodyHtml).toContain("公开正文");
     expect(article.bodyHtml).toContain("折叠正文");
     expect(article.bodyHtml).toContain("const answer = 42;");
-    expect(article.bodyHtml).not.toMatch(/站点导航|相关文章|pageState/);
+    expect(article.bodyHtml).toContain("公开知识块");
+    expect(article.bodyHtml).toContain('encoding="application/x-tex"');
+    expect(article.bodyHtml).toContain('<pre class="galley-mermaid-source">flowchart TD\n A[Start] --&gt; B[Finish]</pre>');
+    expect(article.bodyHtml).not.toMatch(/站点导航|相关文章|pageState|__next_f/);
     expect(requests.slice(start)).toEqual(["/posts/old-fixture", "/posts/fixture"]);
   });
 
