@@ -14,9 +14,11 @@ FROM node:22-bookworm-slim
 WORKDIR /app
 ENV GOLDMINE_HOME=/data \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ARG DEBIAN_MIRROR=http://mirrors.ustc.edu.cn/debian
 COPY --from=build /app/node_modules ./node_modules
 RUN npm install --global --omit=dev --ignore-scripts @wechatsync/cli@1.1.0 \
     && npm cache clean --force \
+    && sed -Ei "s|^URIs: https?://deb\.debian\.org/debian/?$|URIs: ${DEBIAN_MIRROR}|" /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
     && apt-get install -y --no-install-recommends fonts-noto-cjk \
     && node node_modules/playwright/cli.js install --with-deps --only-shell chromium \
