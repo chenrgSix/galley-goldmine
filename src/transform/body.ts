@@ -46,15 +46,6 @@ export async function transformBody(paths: WorkspacePaths, article: GalleyArticl
 
   $(discarded).remove();
   $("button, input, textarea, select, .galley-anchor, .galley-tabs-list, .galley-mermaid-placeholder").remove();
-  const unsupported = $(interactive).add($("*").filter((_index, element) =>
-    element.type === "tag" && element.name.startsWith("galley-")));
-  if (unsupported.length > 0 || $("svg, math").not(".katex math").length > 0) {
-    warnings.push({
-      code: "static-fallback", severity: "warning",
-      message: "Interactive or unsupported elements were flattened. Check the retained text and media.",
-    });
-  }
-  $("svg").remove();
   $("details").each((_index, node) => {
     const details = $(node);
     const summary = details.children("summary").first();
@@ -80,7 +71,7 @@ export async function transformBody(paths: WorkspacePaths, article: GalleyArticl
   });
 
   // Work on source images first so generated diagrams and equations never become automatic covers.
-  for (const node of $("img").toArray()) {
+  for (const node of $("img").not("svg img").toArray()) {
     const image = $(node);
     const alt = image.attr("alt") ?? "";
     const src = image.attr("src")?.trim();
@@ -134,6 +125,25 @@ export async function transformBody(paths: WorkspacePaths, article: GalleyArticl
   }
 
   try {
+    for (const node of $("figure.galley-flow").toArray()) {
+      const figure = $(node);
+      const svg = figure.children("svg").first();
+      const alt = svg.attr("aria-label")?.trim() || svg.find("text").toArray()
+        .map((label) => $(label).text().trim()).filter(Boolean).join(" / ");
+      try {
+        const { prepareFlowSvg } = await import("./flow.js");
+        const png = await staticImage.render("flow", prepareFlowSvg(svg.toString()));
+        svg.replaceWith(useImage(png, alt || "流程图", 2).addClass("goldmine-display"));
+      } catch {
+        figure.children("svg").remove();
+        figure.prepend($("<p>").text(alt || "[流程图暂不可用]"));
+        warnings.push({
+          code: "flow-render-failed", severity: "blocking",
+          message: "Could not render a Galley flow diagram. The available labels are shown as text.",
+        });
+      }
+      figure.removeClass("galley-flow");
+    }
     for (const node of $(".katex-display, .katex").toArray()) {
       const formula = $(node);
       if (formula.parents(".katex-display, .katex").length > 0) continue;
@@ -150,6 +160,16 @@ export async function transformBody(paths: WorkspacePaths, article: GalleyArticl
   } finally {
     await staticImage.close();
   }
+
+  const unsupported = $(interactive).add($("*").filter((_index, element) =>
+    element.type === "tag" && element.name.startsWith("galley-")));
+  if (unsupported.length > 0 || $("svg, math").length > 0) {
+    warnings.push({
+      code: "static-fallback", severity: "warning",
+      message: "Interactive or unsupported elements were flattened. Check the retained text and media.",
+    });
+  }
+  $("svg").remove();
 
   const html = sanitizeHtml($.html(), {
     allowedTags,

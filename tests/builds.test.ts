@@ -105,6 +105,36 @@ describe("platform builds", () => {
     expect(readFileSync(toutiao.files.html, "utf8")).not.toContain("style=");
   });
 
+  it("preserves a Galley flow diagram as a local PNG with its accessible label", async () => {
+    saveSnapshot(paths, {
+      ...article,
+      bodyHtml: `<figure class="galley-flow"><svg viewBox="0 0 280 48" aria-label="Order to inventory">
+        <defs><marker id="react-id"></marker></defs>
+        <g class="galley-flow-edge"><path d="M88,20 L168,20" marker-end="url(#react-id)"/></g>
+        <g class="galley-flow-node"><rect width="88" height="40" rx="8"/><text x="44" y="25" text-anchor="middle">Order</text></g>
+        <g class="galley-flow-node" transform="translate(170,0)"><rect width="88" height="40" rx="8"/>
+          <text x="44" y="25" text-anchor="middle">Inventory</text></g>
+      </svg></figure>`,
+    });
+    const build = await buildArticle(paths, "example", { platform: "toutiao" });
+    expect(build.assets).toMatchObject([{ kind: "image", width: 560, height: 96 }]);
+    expect(build.warnings).toEqual([]);
+    const $ = load(readFileSync(build.files.html, "utf8"));
+    expect($("figure img").attr("alt")).toBe("Order to inventory");
+    expect($("svg")).toHaveLength(0);
+  });
+
+  it("retains a flow diagram's description when its render fails", async () => {
+    saveSnapshot(paths, {
+      ...article,
+      bodyHtml: '<figure class="galley-flow"><svg aria-label="Order to inventory"></svg></figure>',
+    });
+    const build = await buildArticle(paths, "example", { platform: "toutiao" });
+    const $ = load(readFileSync(build.files.html, "utf8"));
+    expect($("figure").text()).toBe("Order to inventory");
+    expect(build.warnings).toMatchObject([{ code: "flow-render-failed", severity: "blocking" }]);
+  });
+
   it("keeps media requests off other private origins, including after a redirect", async () => {
     saveSnapshot(paths, {
       ...article, bodyHtml: '<p><img src="/external-image" alt="Private image"></p>',
