@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
+import { load } from "cheerio";
 import { describe, expect, it } from "vitest";
 import { workspacePaths } from "../src/core/config.js";
 import { initializeDatabase } from "../src/core/db/client.js";
@@ -66,6 +67,30 @@ describe("scene GIFs", () => {
       .toEqual([1000, 1500, 2600]);
     expect(bytes).toContain("NETSCAPE2.0\x03\x01\x00\x00\x00");
     expect(gif.length).toBeLessThan(2 * 1024 * 1024);
+  });
+
+  it("fits mixed captions to two lines and reserves room for longer captions in every frame", async () => {
+    const withCaptions = structuredClone(scene);
+    const first = "查".repeat(47);
+    const second = `searchIndex ${"证".repeat(39)}`;
+    const long = "W".repeat(256);
+    withCaptions.steps[0]!.caption = `${first} ${second}`;
+    withCaptions.steps[1]!.caption = long;
+    const [initial, mixed, expanded] = [...sceneSvgFrames(withCaptions)].map(({ svg }) => load(svg, { xmlMode: true }));
+
+    const mixedLines = mixed!('svg > text[fill="#D43A2F"]');
+    expect(mixedLines.map((_, line) => mixed!(line).text()).get()).toEqual([first, second]);
+    const longLines = expanded!('svg > text[fill="#D43A2F"]');
+    expect(longLines.length).toBeGreaterThan(2);
+    expect(longLines.text()).toBe(long);
+    const height = Number(expanded!("svg").attr("height"));
+    expect(height).toBeGreaterThan(582);
+    expect(Number(initial!("svg").attr("height"))).toBe(height);
+    expect(Number(mixed!("svg").attr("height"))).toBe(height);
+    expect(Number(longLines.first().attr("y"))).toBeGreaterThan(516 + 12);
+    expect(Number(longLines.last().attr("y"))).toBeLessThan(height - 12);
+    const gif = await sceneGif(withCaptions);
+    expect(gif.readUInt16LE(8)).toBe(height);
   });
 
   it("migrates an existing cover reference and caches a distinct scene asset", async () => {

@@ -4,13 +4,15 @@ import { renderAsync, type ResvgRenderOptions } from "@resvg/resvg-js";
 import type { SceneData, SceneNode } from "../importer/scene-source.js";
 import { escapeHtml } from "./formats.js";
 
-export const sceneRendererVersion = "3";
+export const sceneRendererVersion = "4";
 const { GIFEncoder, applyPalette, quantize } = createRequire(import.meta.url)("gifenc") as typeof import("gifenc").default;
 const width = 1000;
 const titleHeight = 46;
 const canvasHeight = 470;
-const captionHeight = 66;
-const height = titleHeight + canvasHeight + captionHeight;
+const minCaptionHeight = 66;
+const captionWidth = 940;
+const captionWords = new Intl.Segmenter("zh-CN", { granularity: "word" });
+const captionGraphemes = new Intl.Segmenter("zh-CN", { granularity: "grapheme" });
 const resizeThreshold = 2 * 1024 * 1024;
 const maxGifBytes = 10_000_000;
 
@@ -192,30 +194,49 @@ function linkMarkup(link: Link, geometry: ReturnType<typeof linkGeometry>, sent:
   };
 }
 
-function captionMarkup(value: string) {
-  if (!value.trim()) return "";
-  const maxWidth = 940;
-  const chars = Array.from(value.trim().replace(/\s+/gu, " "));
-  const size = Math.min(19, (maxWidth * 2 - 24) / textUnits(chars.join("")));
-  if (size < 12) throw new Error("Scene caption exceeds the available space.");
-  const lines = [""];
+function wrapCaption(words: string[], size: number) {
+  // Allow one em per character so wide glyphs have room in mixed captions.
+  const maxUnits = Math.floor(captionWidth / size);
+  const parts = words.flatMap((word) => Array.from(word).length <= maxUnits
+    ? [word] : Array.from(captionGraphemes.segment(word), ({ segment }) => segment));
+  const lines: string[] = [];
+  let line = "";
   let used = 0;
-  for (const character of chars) {
-    const units = textUnits(character);
-    if (used + units > maxWidth / size) {
-      lines.push("");
+  for (const part of parts) {
+    const units = Array.from(part).length;
+    if (line && used + units > maxUnits) {
+      lines.push(line.trimEnd());
+      line = "";
       used = 0;
     }
-    lines[lines.length - 1] += character;
+    if (!line && part === " ") continue;
+    line += part;
     used += units;
   }
+  if (line) lines.push(line.trimEnd());
+  return lines;
+}
+
+function layoutCaption(value: string) {
+  const words = Array.from(captionWords.segment(value.trim().replace(/\s+/gu, " ")), ({ segment }) => segment);
+  let size = 19;
+  let lines = wrapCaption(words, size);
+  while (lines.length > 2 && size > 12) {
+    size--;
+    lines = wrapCaption(words, size);
+  }
+  return { lines, size, lineHeight: size + 7 };
+}
+
+function captionMarkup({ lines, size, lineHeight }: ReturnType<typeof layoutCaption>, captionHeight: number) {
   const centerY = titleHeight + canvasHeight + captionHeight / 2;
   return lines.map((line, index) =>
-    label(line.trim(), { x: width / 2, y: centerY + (index - (lines.length - 1) / 2) * 26 }, size, red, { bold: true }),
+    label(line, { x: width / 2, y: centerY + (index - (lines.length - 1) / 2) * lineHeight }, size, red, { bold: true }),
   ).join("");
 }
 
-function frameSvg(scene: SceneData, frame: Frame) {
+function frameSvg(scene: SceneData, frame: Frame, caption: ReturnType<typeof layoutCaption>, captionHeight: number) {
+  const height = titleHeight + canvasHeight + captionHeight;
   const scale = { x: width / scene.width, y: canvasHeight / Math.max(canvasHeight, scene.height) };
   const nodes = new Map(frame.nodes.map((node) => [node.id, node]));
   const links = new Map<string, ReturnType<typeof linkGeometry>>();
@@ -261,13 +282,17 @@ function frameSvg(scene: SceneData, frame: Frame) {
     <g transform="translate(0 ${titleHeight})" clip-path="url(#stage)">
       <g transform="${transform}">${lines.join("")}${boxes.join("")}${labels.join("")}</g>
     </g>
-    ${captionMarkup(frame.caption)}
+    ${captionMarkup(caption, captionHeight)}
   </svg>`;
 }
 
 export function* sceneSvgFrames(scene: SceneData) {
+  const captions = ["", ...scene.steps.map(({ caption }) => caption)].map(layoutCaption);
+  const captionHeight = Math.max(minCaptionHeight, ...captions.map(({ lines, lineHeight }) => lines.length * lineHeight + 14));
+  let index = 0;
   for (const frame of sceneFrames(scene)) {
-    yield { svg: frameSvg(scene, frame), delay: frame.delay };
+    const caption = captions[index++]!;
+    yield { svg: frameSvg(scene, frame, caption, captionHeight), delay: frame.delay };
   }
 }
 
