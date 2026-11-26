@@ -25,6 +25,10 @@ describe("Galley article reader", () => {
       case "/posts/fixture":
         response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(fixture);
         return;
+      case "/posts/incomplete":
+        response.writeHead(200, { "content-type": "text/html" })
+          .end(fixture.toString("utf8").replace('id="S:2"', 'id="S:4"'));
+        return;
       default:
         response.writeHead(404).end();
     }
@@ -83,5 +87,9 @@ describe("Galley article reader", () => {
   it("reports HTTP errors and pages without an article body", async () => {
     await expect(readGalleyArticle("missing", origin)).rejects.toThrow(/HTTP 404/);
     await expect(readGalleyArticle("no-article", origin)).rejects.toThrow(/no Galley article/);
+  });
+
+  it("rejects a partial article when a streamed segment is missing", async () => {
+    await expect(readGalleyArticle("incomplete", origin)).rejects.toThrow(/incomplete streamed article/);
   });
 });

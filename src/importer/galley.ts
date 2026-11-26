@@ -1,6 +1,7 @@
 import { load } from "cheerio";
 import { downloadTimeoutMs, httpUrl, readResponseBytes, redirectStatuses } from "../core/http.js";
 import { mermaidSources } from "./mermaid-source.js";
+import { restoreStreamedSegments } from "./streamed-html.js";
 
 function articleLocation(url: URL | null, origin: string | null) {
   const encodedSlug = url && /^\/posts\/([^/]+)\/?$/.exec(url.pathname)?.[1];
@@ -72,10 +73,14 @@ export type GalleyArticle = Awaited<ReturnType<typeof readGalleyArticle>>;
 export async function readGalleyArticle(input: string, baseUrl: string | null) {
   const { location: { url, slug }, html } = await requestPage(input, baseUrl);
   const $ = load(html);
+  restoreStreamedSegments($);
   const article = $("article.galley-article").first();
   const header = article.children(".galley-article-header");
   const title = header.find(".galley-title").first().text().trim();
   const body = article.find(".galley-prose").first();
+  if (body.find('template[id^="P:"]').length > 0) {
+    throw new Error("Galley returned an incomplete streamed article. Try importing it again.");
+  }
   body.find("script, template, galley-notes").remove();
   const diagrams = body.find("figure.galley-mermaid");
   if (diagrams.find(".galley-mermaid-placeholder").length > 0) {
