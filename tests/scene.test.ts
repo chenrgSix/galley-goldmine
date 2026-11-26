@@ -5,7 +5,7 @@ import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { workspacePaths } from "../src/core/config.js";
 import { initializeDatabase } from "../src/core/db/client.js";
-import { sceneFrames, sceneGif } from "../src/transform/scene.js";
+import { sceneFrames, sceneGif, sceneSvgFrames } from "../src/transform/scene.js";
 import { staticImages } from "../src/transform/static-images.js";
 import { scene } from "./fixtures/scene.js";
 
@@ -16,11 +16,44 @@ describe("scene GIFs", () => {
       .filter((node) => node.kind !== "camera" && node.props.opacity > 0).map(({ id }) => id));
     expect(visible).toEqual([["question"], ["question", "answer", "lookup"], ["question", "answer", "lookup"]]);
     expect(frames.map(({ caption }) => caption)).toEqual(["", ...scene.steps.map(({ caption }) => caption)]);
-    expect(frames.map(({ sent }) => [...sent])).toEqual([[], [["lookup", "订单记录"]], []]);
+    expect(frames.map(({ sent }) => sent.size)).toEqual([0, 1, 0]);
+    expect(frames[1]?.sent.get("lookup")).toEqual(new Map([["result", "订单记录"]]));
     expect(frames[1]?.nodes[1]?.props).toMatchObject({ stroke: "accent", text: "资料" });
     expect(frames[2]?.nodes[1]?.props).toMatchObject({ stroke: "c3", text: "订单" });
     expect(frames[2]?.nodes[0]?.props).toMatchObject({ opacity: 0.4 });
     expect(scene.nodes[1]?.props).toMatchObject({ opacity: 0, text: "资料" });
+  });
+
+  it("keeps both labels on a shared send and skips highlights for unchanged or reset positions", () => {
+    const shared = structuredClone(scene);
+    const packet = shared.nodes.find((node) => node.kind === "packet")!;
+    shared.nodes.push(
+      { ...packet, id: "receipt", props: { ...packet.props, text: "付款回执" } },
+      { ...packet, id: "waiting", props: { ...packet.props, text: "待核对", pos: 0.5, opacity: 1 } },
+    );
+    shared.steps[0]!.changes.push(
+      { id: "result", property: "opacity", value: 1 },
+      { id: "receipt", property: "opacity", value: 1 },
+      { id: "receipt", property: "pos", value: 1 },
+      { id: "receipt", property: "opacity", value: 0 },
+    );
+    shared.steps[1]!.changes.push({ id: "result", property: "pos", value: 1 });
+    shared.steps.push({ caption: "重置数据包。", changes: [
+      { id: "result", property: "pos", value: 0 },
+      { id: "result", property: "opacity", value: 0 },
+    ] });
+
+    const [, sent, unchanged, reset] = [...sceneSvgFrames(shared)];
+    const highlight = 'stroke="#D43A2F" stroke-width="4"';
+    expect(sent?.svg).toContain(highlight);
+    expect(sent?.svg).toContain(">订单记录 · 付款回执</text>");
+    expect(sent?.svg).toContain(">待核对</text>");
+    expect(sent?.svg).not.toContain(">订单记录</text>");
+    expect(sent?.svg.match(/<circle /gu)).toHaveLength(2);
+    expect(unchanged?.svg).not.toContain(highlight);
+    expect(unchanged?.svg).toContain(">订单记录</text>");
+    expect(reset?.svg).not.toContain(highlight);
+    expect(reset?.svg).not.toContain("订单记录");
   });
 
   it("encodes all frames with the requested delays and infinite looping", async () => {

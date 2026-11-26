@@ -4,7 +4,7 @@ import { renderAsync, type ResvgRenderOptions } from "@resvg/resvg-js";
 import type { SceneData, SceneNode } from "../importer/scene-source.js";
 import { escapeHtml } from "./formats.js";
 
-export const sceneRendererVersion = "2";
+export const sceneRendererVersion = "3";
 const { GIFEncoder, applyPalette, quantize } = createRequire(import.meta.url)("gifenc") as typeof import("gifenc").default;
 const width = 1000;
 const titleHeight = 46;
@@ -36,11 +36,13 @@ const fontOptions: ResvgRenderOptions = {
 };
 const fontStack = "'Noto Sans CJK SC','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Songti SC',sans-serif";
 
-type Frame = { nodes: SceneNode[]; caption: string; sent: ReadonlyMap<string, string>; delay: number };
+type PacketLabels = ReadonlyMap<string, string>;
+type Frame = { nodes: SceneNode[]; caption: string; sent: ReadonlyMap<string, PacketLabels>; delay: number };
 type Point = { x: number; y: number };
 type Box = Extract<SceneNode, { kind: "box" }>;
 type Text = Extract<SceneNode, { kind: "text" }>;
 type Link = Extract<SceneNode, { kind: "link" }>;
+type Packet = Extract<SceneNode, { kind: "packet" }>;
 type Endpoint = Box | Text;
 type Scale = { x: number; y: number };
 
@@ -49,14 +51,21 @@ export function* sceneFrames(scene: SceneData): Generator<Frame> {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   yield { nodes: structuredClone(nodes), caption: "", sent: new Map(), delay: 1000 };
   for (const [index, step] of scene.steps.entries()) {
-    const packets = new Set<Extract<SceneNode, { kind: "packet" }>>();
+    const packets = new Set<Packet>();
     for (const change of step.changes) {
       const node = byId.get(change.id);
       if (!node || !Object.hasOwn(node.props, change.property)) throw new Error("Invalid scene property change.");
+      // A packet can advance and fade out in the same step.
+      if (node.kind === "packet" && change.property === "pos"
+        && typeof change.value === "number" && change.value > node.props.pos) packets.add(node);
       Object.assign(node.props, { [change.property]: change.value });
-      if (node.kind === "packet" && change.property === "pos") packets.add(node);
     }
-    const sent = new Map([...packets].map((packet) => [packet.along, packet.props.text]));
+    const sent = new Map<string, Map<string, string>>();
+    for (const packet of packets) {
+      const labels = sent.get(packet.along) ?? new Map<string, string>();
+      labels.set(packet.id, packet.props.text);
+      sent.set(packet.along, labels);
+    }
     yield { nodes: structuredClone(nodes), caption: step.caption, sent, delay: index === scene.steps.length - 1 ? 2600 : 1500 };
   }
 }
@@ -160,7 +169,7 @@ function linkGeometry(link: Link, a: Endpoint, b: Endpoint, scale: Scale) {
   return { start, cut, tip, at, normal, vertical: Math.abs(direction.y) > Math.abs(direction.x) };
 }
 
-function linkMarkup(link: Link, geometry: ReturnType<typeof linkGeometry>, sent: string | undefined) {
+function linkMarkup(link: Link, geometry: ReturnType<typeof linkGeometry>, sent: PacketLabels | undefined) {
   const { props } = link;
   const { start, cut, tip, at, normal, vertical } = geometry;
   const stroke = sent !== undefined ? red : props.stroke === "soft" ? "#4A4A4A" : paint(props.stroke);
@@ -174,11 +183,12 @@ function linkMarkup(link: Link, geometry: ReturnType<typeof linkGeometry>, sent:
     : { x: midpoint.x - normal.x * 16, y: midpoint.y - normal.y * 16 };
   const tag = vertical ? { x: midpoint.x - 10, y: midpoint.y + 12 }
     : { x: midpoint.x + normal.x * 18, y: midpoint.y + normal.y * 18 };
+  const packetText = sent ? [...sent.values()].filter(Boolean).join(" · ") : "";
   return {
     line: `<g opacity="${props.opacity}"><path d="M${start.x} ${start.y} Q${cut.x} ${cut.y} ${tip.x} ${tip.y}"
       fill="none" stroke="${stroke}" stroke-width="${lineWidth}"${dash}/>${startHead}${endHead}</g>`,
     labels: label(props.text, main, props.size * 1.15, paint(props.color), { anchor, maxWidth: 300, halo: true })
-      + label(sent ?? "", tag, props.size * 1.15, red, { anchor, bold: true, maxWidth: 300, halo: true }),
+      + label(packetText, tag, props.size * 1.15, red, { anchor, bold: true, maxWidth: 300, halo: true }),
   };
 }
 
@@ -231,9 +241,10 @@ function frameSvg(scene: SceneData, frame: Frame) {
     if (node.kind === "text") boxes.push(textMarkup(node, scale));
     if (node.kind === "packet") {
       const point = links.get(node.along)?.at(node.props.pos);
+      const text = frame.sent.get(node.along)?.has(node.id) ? "" : node.props.text;
       if (point) labels.push(`<g opacity="${node.props.opacity}">
         <circle cx="${point.x}" cy="${point.y}" r="${node.props.r}" fill="${paint(node.props.fill)}"/>
-        ${label(node.props.text, { x: point.x, y: point.y - node.props.r - 9 }, node.props.size, paint(node.props.color))}
+        ${label(text, { x: point.x, y: point.y - node.props.r - 9 }, node.props.size, paint(node.props.color))}
       </g>`);
     }
   }
@@ -254,13 +265,19 @@ function frameSvg(scene: SceneData, frame: Frame) {
   </svg>`;
 }
 
+export function* sceneSvgFrames(scene: SceneData) {
+  for (const frame of sceneFrames(scene)) {
+    yield { svg: frameSvg(scene, frame), delay: frame.delay };
+  }
+}
+
 async function encode(scene: SceneData, outputWidth: number, colors: number) {
   const gif = GIFEncoder();
-  for (const frame of sceneFrames(scene)) {
-    const raster = await renderAsync(frameSvg(scene, frame), { ...fontOptions, fitTo: { mode: "width", value: outputWidth } });
+  for (const { svg, delay } of sceneSvgFrames(scene)) {
+    const raster = await renderAsync(svg, { ...fontOptions, fitTo: { mode: "width", value: outputWidth } });
     const pixels = raster.pixels;
     const palette = quantize(pixels, colors);
-    gif.writeFrame(applyPalette(pixels, palette), raster.width, raster.height, { palette, delay: frame.delay, repeat: 0 });
+    gif.writeFrame(applyPalette(pixels, palette), raster.width, raster.height, { palette, delay, repeat: 0 });
   }
   gif.finish();
   return Buffer.from(gif.bytes());
