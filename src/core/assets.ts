@@ -27,6 +27,10 @@ const mimeByExtension = new Map([
   ["png", "image/png"], ["jpg", "image/jpeg"], ["gif", "image/gif"], ["webp", "image/webp"],
 ]);
 
+export function storedImageType(extension: string): string | undefined {
+  return mimeByExtension.get(extension);
+}
+
 export function assetReference(asset: Asset): AssetRef {
   const extension = [...mimeByExtension].find(([, mime]) => mime === asset.mime)?.[0];
   if (!extension) throw new Error("Unsupported stored image format.");
@@ -34,7 +38,7 @@ export function assetReference(asset: Asset): AssetRef {
   return { file: `${sha256}.${extension}`, sha256, kind, width, height, bytes };
 }
 
-export function readAsset(paths: WorkspacePaths, asset: AssetRef): Buffer {
+export function readAsset(paths: WorkspacePaths, asset: Pick<AssetRef, "file" | "sha256">): Buffer {
   const content = readFileSync(join(paths.assets, asset.file));
   if (sha256(content) !== asset.sha256) throw new Error(`Asset contents have changed: ${asset.file}`);
   return content;

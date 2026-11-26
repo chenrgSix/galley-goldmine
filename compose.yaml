@@ -3,12 +3,17 @@ services:
     build: .
     init: true
     shm_size: 256m
+    command: ["serve", "--host", "0.0.0.0"]
     environment:
+      GOLDMINE_ADMIN_PASSWORD:
+      GOLDMINE_GALLEY_URL:
+      GOLDMINE_WEB_ORIGIN: ${GOLDMINE_WEB_ORIGIN:-http://127.0.0.1:${GOLDMINE_WEB_PORT:-8787}}
       WECHATSYNC_TOKEN:
       SYNC_WS_PORT: "9527"
     volumes:
       - goldmine-data:/data
     ports:
+      - "127.0.0.1:${GOLDMINE_WEB_PORT:-8787}:8787"
       - "127.0.0.1:${GOLDMINE_BRIDGE_PORT:-9527}:9527"
 
 volumes:

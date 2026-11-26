@@ -1,6 +1,6 @@
 # 架构
 
-Goldmine 是独立的 MIT 项目。CLI 负责处理参数与输出，核心模块负责工作区、数据模型和文章处理。Agent Skill 调用 CLI 组织工作流。第二个入口（本地界面或 MCP）出现前，编排逻辑留在各领域模块内，不单独设应用层。
+Goldmine 是独立的 MIT 项目。CLI 和网页后台使用同一套工作区、数据模型和文章处理模块。Agent Skill 调用 CLI 组织工作流。
 
 ## 上游接口
 
@@ -17,6 +17,7 @@ Goldmine 是独立的 MIT 项目。CLI 负责处理参数与输出，核心模�
 | `src/transform/` | 清洗正文、规范化 Galley 组件、静态化、素材本地化、平台适配 |
 | `src/review/` | 计算构建指纹、生成预览、记录审核 |
 | `src/publisher/` | 调用 Wechatsync CLI、判定结果、防止重复提交 |
+| `src/web/` | 管理员登录、会话校验、服务端页面与操作进度 |
 
 ## 数据
 

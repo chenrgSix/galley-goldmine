@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
-import { assetReference, loadCover, readAsset } from "../core/assets.js";
+import { assetReference, loadCover, readAsset, saveAsset } from "../core/assets.js";
 import type { WorkspacePaths } from "../core/config.js";
 import { withDatabase } from "../core/db/client.js";
 import { assets, platformBuilds, type Platform } from "../core/db/schema.js";
@@ -20,7 +20,7 @@ type BuildOptions = {
   platform: Platform;
   title?: string;
   summary?: string;
-  cover?: string;
+  cover?: string | Uint8Array;
 };
 
 export async function buildArticle(paths: WorkspacePaths, reference: string, options: BuildOptions) {
@@ -29,7 +29,9 @@ export async function buildArticle(paths: WorkspacePaths, reference: string, opt
   const { platform } = options;
   const titleOverride = options.title?.replace(/\s+/gu, " ").trim();
   if (titleOverride === "") throw new Error("The title override cannot be empty.");
-  const coverOverride = options.cover === undefined ? null : loadCover(paths, options.cover);
+  const coverOverride = typeof options.cover === "string"
+    ? loadCover(paths, options.cover)
+    : options.cover === undefined ? null : saveAsset(paths, options.cover, "cover", null);
   const body = await transformBody(paths, article);
 
   return withDatabase(paths, false, (db) => db.transaction((tx) => {

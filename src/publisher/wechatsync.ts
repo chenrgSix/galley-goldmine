@@ -12,6 +12,7 @@ export const syncTimeoutMs = 7 * 60_000;
 function publisherEnv(authenticated: boolean): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, FORCE_COLOR: "0" };
   delete env.MCP_TOKEN;
+  delete env.GOLDMINE_ADMIN_PASSWORD;
   if (!authenticated) delete env.WECHATSYNC_TOKEN;
   return env;
 }

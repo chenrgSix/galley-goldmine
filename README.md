@@ -4,7 +4,11 @@
 
 Galley Goldmine keeps local snapshots of published Galley articles and builds versions for WeChat Official Accounts and Toutiao. Each build has an offline preview, a review history, and a record of draft delivery through Wechatsync.
 
-## Quick start
+## Web dashboard
+
+Sign in to import Galley articles, preview platform builds, review them, and sync drafts. See the [startup guide](docs/deployment.md#启动网页后台) for local and Docker Compose setup.
+
+## CLI quick start
 
 Use Node.js 22.13 or later and pnpm 11.
 

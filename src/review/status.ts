@@ -7,7 +7,8 @@ import { attemptStatus } from "../publisher/attempt-status.js";
 import { bundlePaths, verifyBuild, type BuildRecord } from "./bundle.js";
 import { latestReview, type Review } from "./reviews.js";
 
-function reviewState(paths: WorkspacePaths, build: BuildRecord, review: Review | undefined, current: boolean) {
+function reviewState(paths: WorkspacePaths, build: BuildRecord, review: Review | undefined, current: boolean):
+  "superseded" | "unreviewed" | "rejected" | "invalid" | "approved" {
   if (!current) return "superseded";
   if (!review) return "unreviewed";
   if (review.decision === "rejected") return "rejected";

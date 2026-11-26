@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { once } from "node:events";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Command, Option } from "commander";
@@ -45,6 +46,29 @@ program
       return;
     }
     console.log(created ? `Created ${paths.config}` : `Workspace ready at ${paths.root}`);
+  });
+
+program
+  .command("serve")
+  .description("start the authenticated Goldmine web dashboard")
+  .option("--host <address>", "web listener address", "127.0.0.1")
+  .option("--port <port>", "web listener port", "8787")
+  .option("--galley-url <origin>", "set the Galley site when creating the workspace")
+  .action(async (options: { host: string; port: string; galleyUrl?: string }) => {
+    const port = Number(options.port);
+    if (!/^\d+$/u.test(options.port) || port < 1 || port > 65535) throw new Error("Use a web port from 1 to 65535.");
+    const origin = process.env.GOLDMINE_WEB_ORIGIN || `http://127.0.0.1:${port}`;
+    const password = process.env.GOLDMINE_ADMIN_PASSWORD ?? "";
+    delete process.env.GOLDMINE_ADMIN_PASSWORD;
+    const { createWebServer } = await import("../web/server.js");
+    const server = await createWebServer(pathsForCommand(), {
+      origin,
+      password,
+      galleyUrl: options.galleyUrl ?? (process.env.GOLDMINE_GALLEY_URL || undefined),
+    });
+    server.listen(port, options.host);
+    await once(server, "listening");
+    console.log(`Goldmine dashboard at ${origin}`);
   });
 
 program
