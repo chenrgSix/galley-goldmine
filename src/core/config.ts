@@ -38,6 +38,8 @@ export function workspacePaths(directory?: string) {
     config: join(root, "config.json"),
     database: join(root, "goldmine.db"),
     snapshots: join(root, "snapshots"),
+    assets: join(root, "assets"),
+    builds: join(root, "builds"),
   };
 }
 
