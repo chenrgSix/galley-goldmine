@@ -5,7 +5,7 @@ Goldmine 是独立的 MIT 项目。CLI 负责处理参数与输出，核心模�
 ## 上游接口
 
 - Galley 的 `/posts/:slug` 使用公开文档加载器，服务端输出 `article.galley-article`。正文处于 `.galley-prose`，标题、分类和标签在文章外层。摘要使用页面元数据。[Galley 文章页](https://github.com/codexiaoke/galley/blob/00fb35ab065ce2fa524c270526d56c6335e3f117/src/app/posts/%5Bslug%5D/page.tsx) · [Markdown 渲染](https://github.com/codexiaoke/galley/blob/00fb35ab065ce2fa524c270526d56c6335e3f117/src/render/Markdown.tsx)
-- Wechatsync CLI 支持 `platforms --auth` 和 `sync <file> -p <platform> --title <title> --cover <path> --dry-run`。草稿分发依赖浏览器扩展的登录会话，桥接默认端口为 9527。CLI 退出码和草稿结果需要分别判断。[Wechatsync CLI 源码](https://github.com/wechatsync/Wechatsync/blob/1230678434e180697e288106d9a9a4e11d84a028/packages/cli/src/index.ts) · [CLI 文档](https://github.com/wechatsync/Wechatsync/blob/1230678434e180697e288106d9a9a4e11d84a028/packages/cli/README.md)
+- Wechatsync CLI 支持 `platforms --auth` 和 `sync <file> -p <platform> --title <title> --cover <path> --dry-run`。Goldmine 将 `wechat` 映射为 `weixin`，头条使用 `toutiao`。草稿分发使用浏览器扩展的登录会话，默认桥接端口为 9527。CLI 退出码和草稿回执分别判断。[Wechatsync CLI 源码](https://github.com/wechatsync/Wechatsync/blob/1230678434e180697e288106d9a9a4e11d84a028/packages/cli/src/index.ts) · [平台 ID](https://github.com/wechatsync/Wechatsync/blob/1230678434e180697e288106d9a9a4e11d84a028/README.md)
 
 ## 模块
 
@@ -31,9 +31,9 @@ Goldmine 是独立的 MIT 项目。CLI 负责处理参数与输出，核心模�
 数据库在现有 `articles`、`article_snapshots` 之外新增四张表：
 
 - `assets`：`sha256`、类型（`image`、`mermaid`、`katex`、`cover`）、来源、缓存键、MIME、字节数、宽高。
-- `platform_builds`：快照（`source_url` + `version`）、平台（`wechat`、`toutiao`）、修订号、标题、摘要、封面素材、HTML 与 Markdown 指纹、`bundle_sha256`、结构化警告、渲染器版本。
+- `platform_builds`：快照（`source_url` + `version`）、平台（`wechat`、`toutiao`）、修订号、标题、摘要、封面素材、HTML、Markdown 与 manifest 指纹、`bundle_sha256`、结构化警告、渲染器版本。
 - `reviews`：构建、审核时的 `bundle_sha256`、结论（`approved`、`rejected`）、备注、时间。
-- `sync_attempts`：构建、`bundle_sha256`、审核、模式（`dry_run`、`sync`）、状态、草稿链接、退出码、脱敏后的输出摘录、开始与结束时间，以及人工核对的 `resolved_at` 和 `resolution_note`。
+- `sync_attempts`：构建、`bundle_sha256`、审核、模式（`dry_run`、`sync`）、状态、草稿链接、退出码、脱敏后的输出摘录、开始、截止与结束时间，以及人工核对的 `resolved_at` 和 `resolution_note`。
 
 所有写入沿用现有顺序：先原子地写入完整文件，再用 SQLite 事务更新索引。中断后的重试可以复用已写入的文件。
 
@@ -41,25 +41,26 @@ Goldmine 是独立的 MIT 项目。CLI 负责处理参数与输出，核心模�
 
 导入器使用 HTTP GET 获取同源公开文章，只解析元数据与正文容器。解析阶段保留相对正文链接，图片索引记录绝对 URL。抓取超时为 10 秒，单页上限为 12 MiB。相同 URL 的新内容会递增版本号，内容重复时复用文件。
 
+本地 Galley 生产构建验证了冷启动和预热后的两种页面形态。导入器按页面中的插入标记还原延迟的正文片段，在 Mermaid 容器与组件序号一一对应时从公开的 React 数据中提取源码。整个过程使用静态解析。
+
 ## 转换
 
 转换以快照为输入，正文 HTML 一律按不可信数据处理。
 
-1. 白名单清洗：去除脚本、样式、iframe、事件属性和危险 URL。无法还原的组件记为警告，保留可读文本。
-2. 规范化 Galley 组件：识别知识块、提示框、折叠内容、代码块、公式和 Mermaid。折叠内容展开为带标题的静态块。相对链接按 `sourceUrl` 解析为绝对链接。
-3. 静态化：公式取 TeX 源码，用 MathJax 生成 SVG，再用 resvg 转为 PNG，不依赖浏览器。Mermaid 用 Playwright 渲染为 PNG。Playwright 是可选依赖，只在文章含 Mermaid 时加载，由 `doctor` 检查。渲染失败或依赖缺失时保留代码块并记录阻断警告。平台输出统一使用 PNG。
-4. 素材本地化：下载正文图片，沿用导入器的协议、超时和大小限制，写入 `assets/`。
-5. 平台适配：公众号输出内联样式的 HTML，头条输出简洁的语义 HTML，两者都附带 Markdown。
+1. 解析正文并移除脚本、样式、iframe 和交互控件。知识块保留正文和出处，提示框保留类型，折叠块展开为带标题的静态块。相对链接按 `sourceUrl` 解析为绝对链接。
+2. 正文图片写入 `assets/`。下载沿用导入器的协议、超时和大小限制，跨域下载及重定向只连接公网地址。图片无法读取时保留替代文字和阻断警告。
+3. 公式从 KaTeX 的 `annotation[encoding="application/x-tex"]` 取 TeX 源码，用 MathJax 和 resvg 生成 PNG。Mermaid 通过可选的 Playwright 与 Chromium 生成 PNG。两种渲染器都按需加载，`doctor` 会检查 Mermaid 环境。渲染失败时保留源码和阻断警告。
+4. 输出前按白名单清洗元素、属性和网址。无法静态化的交互组件保留可读内容并附提示。公众号使用内联样式，头条使用语义 HTML，两者均附带 Markdown。
 
 静态化素材按「源码 + 渲染器版本 + 主题」生成缓存键，命中时复用已有 PNG。这样重复构建不会因图片字节变化而改变指纹。
 
-Galley 页面中公式、Mermaid、提示框和知识块的实际结构需要先用真实文章确认，再编写选择器。公式源码预计位于 KaTeX 的 `annotation[encoding="application/x-tex"]`。
-
 ## 标题、摘要和封面
 
-`goldmine build` 通过 `--title`、`--summary`、`--cover` 覆写，最终值写入 manifest 和指纹。同一文章、同一平台重新构建时，未传入的项沿用上次构建的值；首次构建时标题和摘要取自快照。不使用单独的覆写文件。
+`goldmine build` 通过 `--title`、`--summary`、`--cover` 覆写，最终值写入 manifest 和指纹。重建时沿用同一文章、同一平台上一次显式设置的值。默认标题和摘要随最新快照更新。
 
-公众号未指定封面时使用正文第一张图并记录警告，没有图片时禁止同步。头条可以不设封面。平台对封面尺寸和格式的要求需在接入时用已登录账号核实。
+公众号默认选择正文第一张成功下载的原图。缺少封面时构建会提示使用 `--cover`，并阻断同步。头条可以不设封面。
+
+同步时向 Wechatsync 传递标题、HTML 和封面文件。摘要写入 HTML 元数据和预览。已核对的公众号适配器自动生成摘要，草稿封面字段在该版本中留空。正式验收需要在登录后的草稿箱核对两平台的封面、摘要和排版。[Wechatsync 公众号适配器](https://github.com/wechatsync/Wechatsync/blob/1230678434e180697e288106d9a9a4e11d84a028/packages/core/src/adapters/platforms/weixin.ts)
 
 ## 审核
 
@@ -71,13 +72,13 @@ Galley 页面中公式、Mermaid、提示框和知识块的实际结构需要先
 
 ## 分发
 
-同步前依次检查：审核有效、平台已登录、没有阻断警告、没有重复提交或未核对的同步记录。检查通过后，先写入 `pending` 记录，再调用 Wechatsync CLI。
+正式同步检查审核、构建指纹、阻断警告、同步历史和平台登录。通过后复制已验证的 HTML 和素材到临时目录，在事务内再次检查审核和同步历史并写入 `pending`，再调用 Wechatsync CLI。预演只验证文件并执行上游的 `--dry-run`。
 
-- 输出中能确认草稿链接或成功标识时，记为 `succeeded`。
+- 目标平台返回草稿标识或可识别的草稿编辑链接时，记为 `succeeded`。
 - 鉴权失败、参数错误等明确失败，记为 `failed`，可以重试。
-- 超时、中断，或退出码为 0 却没有草稿证据，记为 `unknown`。
+- 超时、中断、素材传输不完整或缺少草稿证据时，记为 `unknown`。
 
-同一构建、同一指纹已有 `succeeded` 时拒绝重复提交。存在 `unknown` 时阻断同步，直到用户在平台草稿箱核对后用 `goldmine resolve` 将其改为 `succeeded` 或 `failed`，并写入核对时间和备注。Wechatsync 成功输出的具体格式需要接入时用真实账号确认。
+同一文章和平台的相同指纹在成功后只能同步一次。较早构建的正在执行或待核对记录也会阻断该文章在该平台的同步。逾期的 `pending` 正式同步按 `unknown` 处理。用户在平台草稿箱核对后，用 `goldmine resolve` 保存结果、时间和备注。真实账号返回的草稿格式列入验收。
 
 `WECHATSYNC_TOKEN` 只从环境变量读取，仅传给需要鉴权的子进程，不写入数据库、日志或输出。
 
@@ -94,4 +95,4 @@ Galley 页面中公式、Mermaid、提示框和知识块的实际结构需要先
 | `resolve <attempt-id>` | 将 `unknown` 核对为 `--succeeded`（可附 `--draft-url`）或 `--failed`，需附 `--note` |
 | `status [article]` | 汇总快照、构建、审核有效性和同步状态 |
 
-核心命令都支持 `--json`。CLI 能强制的是指纹校验和重复提交检查。审核、正式同步和人工核对属于人工确认步骤，由 Agent Skill 约定 Agent 不得代为执行。
+核心命令都支持 `--json`。CLI 强制校验指纹和重复提交。Agent Skill 把审核、正式同步和人工核对交给使用者。

@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-Galley Goldmine 可将 Galley 的公开文章导入本地并保留版本。v0.1 后续将支持文章转换、人工审核，以及通过 Wechatsync 同步微信公众号和今日头条草稿。
+Galley Goldmine 为 Galley 的公开文章保留本地快照，生成微信公众号和今日头条的文章版本。每个版本都有离线预览、人工审核记录和 Wechatsync 草稿同步状态。
 
 ## 快速开始
 
@@ -14,11 +14,15 @@ pnpm build
 pnpm goldmine init --galley-url https://blog.example.com
 pnpm goldmine doctor
 pnpm goldmine import https://blog.example.com/posts/article-slug
-pnpm goldmine list
+pnpm goldmine build article-slug --platform wechat --cover ./cover.png
+pnpm goldmine preview BUILD_ID
+pnpm goldmine sync BUILD_ID --dry-run
 ```
 
-将示例替换为你的 Galley 站点和文章地址。配置站点后，`import` 也接受文章 slug。数据默认存放在 `~/.goldmine`，可通过 `--data-dir` 或 `GOLDMINE_HOME` 指定。重复初始化会保留已有配置和快照。
+将站点、文章、封面和 `BUILD_ID` 替换为实际值。头条构建使用 `--platform toutiao`。文章含 Mermaid 时，运行 `pnpm exec playwright install --only-shell chromium` 安装渲染环境。预演和同步使用 Wechatsync CLI，可在工作区的 `config.json` 设置 `publisher.command`。
 
-每份快照包含文章元数据、渲染后的正文 HTML 和图片 URL。文章内容相同时会复用当前快照。`import` 和 `list` 支持 `--json`。Agent 可使用 [Goldmine Skill](skills/goldmine/SKILL.md)。
+打开 `preview` 输出的文件核对标题、摘要、封面、正文和警告。确认后由使用者执行 `goldmine review BUILD_ID --approve`，再使用已登录的浏览器扩展执行 `goldmine sync BUILD_ID`。用 `goldmine status` 查看结果。遇到 `unknown` 时，在草稿箱核对后用 `goldmine resolve ATTEMPT_ID --succeeded` 或 `--failed`，并附上 `--note`。
+
+数据默认放在 `~/.goldmine`，可通过 `--data-dir` 或 `GOLDMINE_HOME` 指定。再次执行 `init` 会升级现有工作区并保留快照。核心命令支持 `--json`。Agent 的操作范围见 [Goldmine Skill](skills/goldmine/SKILL.md)。
 
 参见[需求](docs/requirements.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)和[开发说明](docs/development.md)。项目采用 [MIT](LICENSE) 许可。
