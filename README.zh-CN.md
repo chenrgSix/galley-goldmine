@@ -25,4 +25,6 @@ pnpm goldmine sync BUILD_ID --dry-run
 
 数据默认放在 `~/.goldmine`，可通过 `--data-dir` 或 `GOLDMINE_HOME` 指定。再次执行 `init` 会升级现有工作区并保留快照。核心命令支持 `--json`。Agent 的操作范围见 [Goldmine Skill](skills/goldmine/SKILL.md)。
 
+服务器可按 [Docker Compose 部署](docs/deployment.md)配置持久工作区和浏览器桥接。
+
 参见[需求](docs/requirements.md)、[架构](docs/architecture.md)、[路线图](docs/roadmap.md)和[开发说明](docs/development.md)。项目采用 [MIT](LICENSE) 许可。

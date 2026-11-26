@@ -25,4 +25,6 @@ Open the file printed by `preview` to review the metadata, cover, body, and warn
 
 The workspace defaults to `~/.goldmine`. Set `--data-dir` or `GOLDMINE_HOME` to use a different directory. Running `init` again upgrades the workspace and preserves snapshots. Core commands support `--json`. Agents can follow the [Goldmine skill](skills/goldmine/SKILL.md).
 
+For server setup, see the [Docker Compose deployment guide](docs/deployment.md) for persistent storage and browser bridging.
+
 See the [requirements](docs/requirements.md), [architecture](docs/architecture.md), [roadmap](docs/roadmap.md), and [development guide](docs/development.md). Licensed under [MIT](LICENSE).
