@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Command, Option } from "commander";
@@ -8,6 +7,8 @@ import { initializeDatabase, withDatabase } from "../core/db/client.js";
 import { articleSnapshots, platforms, type Platform } from "../core/db/schema.js";
 import { readGalleyArticle } from "../importer/galley.js";
 import { listArticles, saveSnapshot } from "../importer/snapshots.js";
+import { resolveAttempt, syncBuild } from "../publisher/sync.js";
+import { publisherAvailable } from "../publisher/wechatsync.js";
 import { previewBuild, recordReview } from "../review/reviews.js";
 import { distributionStatus } from "../review/status.js";
 import { buildArticle } from "../transform/build.js";
@@ -54,15 +55,7 @@ program
     const paths = pathsForCommand();
     const config = loadConfig(paths);
     withDatabase(paths, true, (db) => db.select().from(articleSnapshots).limit(1).get());
-    const env = { ...process.env };
-    delete env.WECHATSYNC_TOKEN;
-    const result = spawnSync(config.publisher.command, ["--version"], {
-      env,
-      stdio: "ignore",
-      timeout: 3000,
-      windowsHide: true,
-    });
-    const wechatsync = result.status === 0;
+    const wechatsync = publisherAvailable(config.publisher.command);
     const { mermaidAvailable } = await import("../transform/mermaid.js");
     const mermaid = await mermaidAvailable();
     if (options.json) {
@@ -192,6 +185,44 @@ program
         }
       }
     }
+  });
+
+program
+  .command("sync <build-id>")
+  .description("preview or send the build to Wechatsync")
+  .option("--dry-run", "show what would be sent without connecting to the platform")
+  .option("--json", "print the sync attempt as JSON")
+  .action(async (id: string, options: { dryRun?: boolean; json?: boolean }) => {
+    const paths = pathsForCommand();
+    const config = loadConfig(paths);
+    const attempt = await syncBuild(paths, id, config.publisher.command, options.dryRun === true);
+    if (options.json) console.log(JSON.stringify(attempt));
+    else {
+      console.log(`Attempt #${attempt.id}: ${attempt.mode} ${attempt.status}`);
+      if (attempt.outputExcerpt) console.log(attempt.outputExcerpt);
+      if (attempt.draftUrl) console.log(attempt.draftUrl);
+    }
+    if (attempt.status !== "succeeded") process.exitCode = 1;
+  });
+
+program
+  .command("resolve <attempt-id>")
+  .description("record the result of manually checking an unknown sync attempt")
+  .option("--succeeded", "confirm that the draft was created")
+  .option("--failed", "confirm that no draft was created")
+  .option("--draft-url <url>", "record the draft link when confirming success")
+  .requiredOption("--note <text>", "record what was found in the draft box")
+  .option("--json", "print the resolved attempt as JSON")
+  .action((id: string, options: {
+    succeeded?: boolean; failed?: boolean; draftUrl?: string; note: string; json?: boolean;
+  }) => {
+    if (Boolean(options.succeeded) === Boolean(options.failed)) throw new Error("Choose either --succeeded or --failed.");
+    const attemptId = Number(id);
+    if (!/^\d+$/u.test(id) || !Number.isSafeInteger(attemptId) || attemptId < 1) throw new Error("Use a valid attempt ID.");
+    const paths = pathsForCommand();
+    loadConfig(paths);
+    const attempt = resolveAttempt(paths, attemptId, options.succeeded ? "succeeded" : "failed", options.note, options.draftUrl);
+    console.log(options.json ? JSON.stringify(attempt) : `Resolved attempt #${attempt.id}: ${attempt.status}`);
   });
 
 try {
