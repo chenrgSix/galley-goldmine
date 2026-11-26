@@ -33,7 +33,12 @@ export type WorkspacePaths = ReturnType<typeof workspacePaths>;
 
 export function workspacePaths(directory?: string) {
   const root = resolve(directory ?? (process.env.GOLDMINE_HOME || join(homedir(), ".goldmine")));
-  return { root, config: join(root, "config.json") };
+  return {
+    root,
+    config: join(root, "config.json"),
+    database: join(root, "goldmine.db"),
+    snapshots: join(root, "snapshots"),
+  };
 }
 
 export function loadConfig(paths: WorkspacePaths): Config {
