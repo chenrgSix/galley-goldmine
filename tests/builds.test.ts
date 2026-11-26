@@ -24,6 +24,11 @@ describe("platform builds", () => {
   let origin: string;
   let downloads = 0;
   const server = createServer((request, response) => {
+    if (request.url === "/external-image") {
+      const port = (server.address() as AddressInfo).port;
+      response.writeHead(302, { location: `http://localhost:${port}/image.png` }).end();
+      return;
+    }
     if (request.url === "/image.png") {
       downloads += 1;
       response.writeHead(200, { "content-type": "image/png" }).end(pixel);
@@ -98,6 +103,16 @@ describe("platform builds", () => {
     expect(wechat).toMatchObject({ title: "定稿标题", summary: "新摘要", cover: first.cover, revision: 3, version: 2 });
     expect(toutiao).toMatchObject({ title: "新标题", summary: "新摘要", cover: null, revision: 1, version: 2 });
     expect(readFileSync(toutiao.files.html, "utf8")).not.toContain("style=");
+  });
+
+  it("keeps media requests off other private origins, including after a redirect", async () => {
+    saveSnapshot(paths, {
+      ...article, bodyHtml: '<p><img src="/external-image" alt="Private image"></p>',
+    });
+    const build = await buildArticle(paths, article.slug, { platform: "toutiao" });
+    expect(downloads).toBe(0);
+    expect(build.assets).toEqual([]);
+    expect(build.warnings).toMatchObject([{ code: "image-unavailable", severity: "blocking" }]);
   });
 
   it("caches browser-free formulas and preserves missing components as blocking warnings", async () => {

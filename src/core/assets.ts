@@ -1,7 +1,11 @@
+import { lookup } from "node:dns";
 import { readFileSync, statSync } from "node:fs";
+import type { LookupFunction } from "node:net";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { imageSize } from "image-size";
+import ipaddr from "ipaddr.js";
+import { Agent, fetch as fetchImage } from "undici";
 import type { WorkspacePaths } from "./config.js";
 import { withDatabase } from "./db/client.js";
 import { assets } from "./db/schema.js";
@@ -66,27 +70,59 @@ export function saveAsset(
   }, { behavior: "immediate" }));
 }
 
-export async function downloadImage(paths: WorkspacePaths, url: URL): Promise<Asset> {
+const lookupPublic: LookupFunction = (hostname, options, callback) => {
+  lookup(hostname, { ...options, all: true }, (error, addresses) => {
+    if (error) {
+      callback(error, "");
+      return;
+    }
+    const publicAddresses = addresses.filter(({ address }) => ipaddr.process(address).range() === "unicast");
+    const first = publicAddresses[0];
+    if (!first) {
+      callback(new Error("External images must resolve to a public address."), "");
+      return;
+    }
+    if (options.all) callback(null, publicAddresses);
+    else callback(null, first.address, first.family);
+  });
+};
+
+export async function downloadImage(paths: WorkspacePaths, url: URL, sourceOrigin: string): Promise<Asset> {
   let location = url;
   const signal = AbortSignal.timeout(downloadTimeoutMs);
-  for (let redirects = 0; redirects <= 4; redirects += 1) {
-    const response = await fetch(location, {
-      headers: { accept: "image/png,image/jpeg,image/gif,image/webp" },
-      credentials: "omit",
-      redirect: "manual",
-      signal,
-    });
-    if (response.ok) {
-      const content = await readResponseBytes(response, "The image exceeds the 12 MiB download limit.");
-      return saveAsset(paths, content, "image", url.href);
+  let external: Agent | undefined;
+  try {
+    for (let redirects = 0; redirects <= 4; redirects += 1) {
+      const crossOrigin = location.origin !== sourceOrigin;
+      if (crossOrigin) {
+        const host = location.hostname.replace(/^\[|\]$/g, "");
+        if (ipaddr.isValid(host) && ipaddr.process(host).range() !== "unicast") {
+          throw new Error("External images must use a public address.");
+        }
+        // Validate addresses at socket connection time, including after a redirect.
+        external ??= new Agent({ connect: { lookup: lookupPublic } });
+      }
+      const response = await fetchImage(location, {
+        headers: { accept: "image/png,image/jpeg,image/gif,image/webp" },
+        credentials: "omit",
+        redirect: "manual",
+        signal,
+        dispatcher: crossOrigin ? external : undefined,
+      });
+      if (response.ok) {
+        const content = await readResponseBytes(response, "The image exceeds the 12 MiB download limit.");
+        return saveAsset(paths, content, "image", url.href);
+      }
+      await response.body?.cancel();
+      if (!redirectStatuses.has(response.status)) throw new Error(`Image returned HTTP ${response.status}.`);
+      const next = httpUrl(response.headers.get("location") ?? "", location);
+      if (!next || next.href === location.href) throw new Error("The image redirect has no valid destination.");
+      location = next;
     }
-    await response.body?.cancel();
-    if (!redirectStatuses.has(response.status)) throw new Error(`Image returned HTTP ${response.status}.`);
-    const next = httpUrl(response.headers.get("location") ?? "", location);
-    if (!next || next.href === location.href) throw new Error("The image redirect has no valid destination.");
-    location = next;
+    throw new Error("The image redirected too many times.");
+  } finally {
+    await external?.destroy();
   }
-  throw new Error("The image redirected too many times.");
 }
 
 export function loadCover(paths: WorkspacePaths, file: string): Asset {

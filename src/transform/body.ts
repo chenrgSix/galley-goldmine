@@ -27,6 +27,7 @@ export async function transformBody(paths: WorkspacePaths, article: GalleyArticl
   const usedAssets = new Map<string, AssetRef>();
   const downloads = new Map<string, Promise<Asset>>();
   const staticImage = staticImages(paths);
+  const sourceOrigin = new URL(article.sourceUrl).origin;
   let firstImage: Asset | null = null;
   let repeatedImages = 0;
 
@@ -89,7 +90,7 @@ export async function transformBody(paths: WorkspacePaths, article: GalleyArticl
       url.hash = "";
       let pending = downloads.get(url.href);
       if (!pending) {
-        pending = downloadImage(paths, url);
+        pending = downloadImage(paths, url, sourceOrigin);
         downloads.set(url.href, pending);
       }
       const asset = await pending;
