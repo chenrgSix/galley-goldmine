@@ -1,0 +1,35 @@
+{
+  "name": "galley-goldmine",
+  "version": "0.1.0",
+  "description": "A local-first content distribution tool for published Galley articles.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "goldmine": "dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "README.zh-CN.md"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "pnpm typecheck && pnpm test && pnpm build",
+    "goldmine": "node dist/cli/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^15.1.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "~5.9.3",
+    "vitest": "5.1.1"
+  }
+}
